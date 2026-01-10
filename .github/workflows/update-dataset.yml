@@ -1,0 +1,107 @@
+# ===========================================
+# GitHub Actions Workflow — Atualização Semanal do Dataset
+# ===========================================
+# Este workflow corre automaticamente todas as segundas-feiras às 03:00 UTC
+# e atualiza o dataset no Hugging Face com novos dados.
+#
+# Também pode ser executado manualmente através do GitHub UI.
+
+name: 🔄 Update Eye Web Dataset
+
+on:
+  # Execução automática semanal (Cron)
+  schedule:
+    # Todas as segundas-feiras às 03:00 UTC (04:00 em Portugal no inverno)
+    - cron: '0 3 * * 1'
+  
+  # Permitir execução manual
+  workflow_dispatch:
+    inputs:
+      records:
+        description: 'Número de registos a gerar (para testes)'
+        required: false
+        default: '10000'
+        type: string
+
+# Variáveis de ambiente globais
+env:
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  update-dataset:
+    name: 📊 Atualizar Dataset
+    runs-on: ubuntu-latest
+    
+    # Timeout de 30 minutos (mais que suficiente)
+    timeout-minutes: 30
+    
+    steps:
+      # 1. Checkout do código
+      - name: 📥 Checkout do Repositório
+        uses: actions/checkout@v4
+      
+      # 2. Configurar Python
+      - name: 🐍 Configurar Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'updater/requirements.txt'
+      
+      # 3. Instalar dependências
+      - name: 📦 Instalar Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r updater/requirements.txt
+      
+      # 4. Executar o script de atualização
+      - name: 🔄 Executar Updater
+        env:
+          # Secrets configurados no GitHub Repository Settings
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_DATASET_REPO: ${{ secrets.HF_DATASET_REPO }}
+          # Sobrescrever número de registos se fornecido manualmente
+          SYNTHETIC_RECORDS: ${{ github.event.inputs.records || '10000' }}
+        working-directory: ./updater
+        run: |
+          echo "🚀 A iniciar atualização do dataset..."
+          python updater.py
+      
+      # 5. (Opcional) Notificação de sucesso
+      - name: ✅ Resumo da Execução
+        if: success()
+        run: |
+          echo "## ✅ Atualização Concluída com Sucesso!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Data:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositório HF:** ${{ secrets.HF_DATASET_REPO }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+      
+      # 6. (Opcional) Notificação de falha
+      - name: ❌ Log de Erro
+        if: failure()
+        run: |
+          echo "## ❌ Atualização Falhou!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Verificar os logs acima para mais detalhes." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Possíveis causas:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Token HF_TOKEN inválido ou expirado" >> $GITHUB_STEP_SUMMARY
+          echo "- Repositório HF_DATASET_REPO não existe" >> $GITHUB_STEP_SUMMARY
+          echo "- Erro de rede ou timeout" >> $GITHUB_STEP_SUMMARY
+
+
+# ===========================================
+# INSTRUÇÕES DE CONFIGURAÇÃO
+# ===========================================
+#
+# 1. No GitHub, vai a: Settings → Secrets and variables → Actions
+#
+# 2. Adiciona os seguintes secrets:
+#    - HF_TOKEN: Token do Hugging Face com permissão WRITE
+#    - HF_DATASET_REPO: Nome do repo (ex: joaosilva/eye-web-breaches)
+#
+# 3. (Opcional) Para testar manualmente:
+#    - Vai a: Actions → Update Eye Web Dataset → Run workflow
+#
+# ===========================================

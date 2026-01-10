@@ -1,0 +1,35 @@
+# ===========================================
+# Eye Web Updater — Dependências Python
+# ===========================================
+# Instalar com: pip install -r requirements.txt
+
+# --- Hugging Face Hub ---
+# Para upload/download de datasets
+huggingface_hub>=0.20.0
+
+# --- Manipulação de Dados ---
+# Pandas para processamento de dados tabulares
+pandas>=2.0.0
+
+# --- Apache Parquet ---
+# PyArrow para leitura/escrita de ficheiros Parquet
+# Inclui compressão Snappy
+pyarrow>=14.0.0
+
+# --- HTTP Requests ---
+# Para obter dados de APIs externas (se necessário)
+requests>=2.31.0
+
+# --- Variáveis de Ambiente ---
+# Carregamento seguro de .env
+python-dotenv>=1.0.0
+
+# --- Hashing ---
+# hashlib já vem incluído no Python, não precisa de instalação
+
+# --- Logging Avançado (Opcional) ---
+# loguru>=0.7.0
+
+# --- Progresso Visual ---
+# Barra de progresso para operações longas
+tqdm>=4.66.0

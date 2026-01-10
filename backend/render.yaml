@@ -1,0 +1,36 @@
+# ===========================================
+# Render Blueprint — Eye Web Backend
+# ===========================================
+# Este ficheiro configura o deploy automático no Render.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: eye-web-api
+    runtime: python
+    region: frankfurt  # Mais próximo de Portugal
+    plan: free
+    
+    # Diretório raiz do backend
+    rootDir: backend
+    
+    # Comandos
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    # Variáveis de ambiente
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: HF_DATASET_REPO
+        value: Samezinho/eye-web-breaches
+      - key: PYTHON_VERSION
+        value: "3.11"
+    
+    # Health check
+    healthCheckPath: /health
+    
+    # Auto-deploy quando há push no main
+    autoDeploy: true
