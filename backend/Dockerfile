@@ -3,8 +3,9 @@
 # ===========================================
 # Imagem otimizada para o Render Free Tier (512MB RAM)
 
-# Usar imagem slim do Python
-FROM python:3.11-slim
+# Usar imagem slim do Python (versão específica para estabilidade)
+# Atualizar manualmente quando necessário: https://hub.docker.com/_/python
+FROM python:3.11.7-slim
 
 # Definir variáveis de ambiente
 ENV PYTHONDONTWRITEBYTECODE=1 \
