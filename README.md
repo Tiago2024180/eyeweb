@@ -1,201 +1,298 @@
-# 👁️ Eye Web — Breach Checker (PAP)
+# 👁️ Eye Web — Breach Checker
+
+[![Security](https://img.shields.io/badge/Security-Dependabot%20Enabled-green?logo=github)](https://github.com/Sam-Ciber-Dev/eyeweb/security)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js%2014-black?logo=next.js)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Hugging Face](https://img.shields.io/badge/Data-Hugging%20Face-yellow?logo=huggingface)](https://huggingface.co/datasets/Samezinho/eye-web-breaches)
 
 **Verificador de Fugas de Dados com Privacidade Total**
 
-Sistema profissional de verificação de *data breaches* utilizando o modelo K-Anonymity.
-O email do utilizador **nunca sai do browser** — apenas o prefixo do hash SHA-256 é enviado à API.
+> 🎓 **Projeto PAP** — Prova de Aptidão Profissional em Cibersegurança
+
+Sistema profissional de verificação de *data breaches* que protege a privacidade do utilizador através do modelo **K-Anonymity**. Os dados sensíveis **nunca saem do browser** — apenas um prefixo do hash SHA-256 é enviado à API.
 
 ---
 
-## 📁 Estrutura do Monorepo
+## 🌟 Funcionalidades
+
+| Funcionalidade | Descrição |
+|----------------|-----------|
+| 📧 **Verificador de Email** | Verifica se o email foi exposto em fugas de dados |
+| 📱 **Verificador de Telefone** | Suporta ~200 países com seletor visual de bandeiras |
+| 🔐 **Verificador de Password** | Analisa força e verifica exposição em breaches |
+| 🛡️ **K-Anonymity** | Privacidade garantida — o servidor nunca conhece os dados reais |
+| 🌍 **100% Gratuito** | Sem custos de hosting (Vercel + Render + Hugging Face) |
+
+---
+
+## 🔒 Como Funciona a Privacidade (K-Anonymity)
+
+```
+┌─────────────┐     SHA-256      ┌─────────────┐     Prefixo     ┌─────────────┐
+│   Browser   │ ───────────────► │    Hash     │ ──────────────► │   API       │
+│  (Cliente)  │                  │  Completo   │   (5 chars)     │  (Backend)  │
+└─────────────┘                  └─────────────┘                 └─────────────┘
+                                                                       │
+       ┌───────────────────────────────────────────────────────────────┘
+       │  Lista de candidatos (todos os hashes com o mesmo prefixo)
+       ▼
+┌─────────────┐     Comparação    ┌─────────────┐
+│   Browser   │ ◄──────────────── │  Candidatos │
+│  (Cliente)  │      Local        │   (JSON)    │
+└─────────────┘                   └─────────────┘
+```
+
+**Resultado:** O servidor nunca recebe o email/telefone/password real — apenas um prefixo que corresponde a milhares de possíveis valores.
+
+---
+
+## 🛠️ Stack Tecnológica
+
+### Frontend
+- **Next.js 14** — React framework com App Router
+- **TypeScript** — Tipagem estática
+- **react-select** — Seletor de países com pesquisa
+- **CSS Variables** — Design system consistente
+
+### Backend
+- **FastAPI** — API REST de alta performance
+- **Python 3.11+** — Linguagem principal
+- **Hugging Face Datasets** — Armazenamento de dados
+- **Parquet** — Formato otimizado para queries
+
+### DevOps
+- **Vercel** — Hosting do frontend (CDN global)
+- **Render** — Hosting do backend (Docker)
+- **GitHub Actions** — CI/CD e atualizações automáticas
+- **Dependabot** — Monitorização de vulnerabilidades
+
+---
+
+## 📁 Estrutura do Projeto
 
 ```
 eye-web-monorepo/
-├── frontend/           # Next.js (Vercel)
+│
+├── frontend/                    # 🖥️ Next.js (Vercel)
 │   ├── src/
-│   │   ├── app/        # App Router do Next.js 14+
-│   │   ├── components/ # Componentes React reutilizáveis
-│   │   ├── lib/        # Utilitários (hashing, API calls)
-│   │   └── styles/     # CSS migrado do design PHP
-│   ├── public/         # Assets estáticos
+│   │   ├── app/                 # App Router + páginas
+│   │   ├── components/          # Componentes React
+│   │   │   ├── DataChecker.tsx      # Tabs Email/Telefone
+│   │   │   ├── EmailChecker.tsx     # Verificador de email
+│   │   │   ├── PhoneChecker.tsx     # Verificador de telefone (~200 países)
+│   │   │   ├── PasswordChecker.tsx  # Verificador de password
+│   │   │   └── BreachResults.tsx    # Resultados reutilizável
+│   │   └── lib/
+│   │       └── api.ts           # Serviço de API + K-Anonymity
+│   ├── .env.example             # ⚠️ Template de configuração
 │   └── package.json
 │
-├── backend/            # FastAPI (Render)
+├── backend/                     # ⚙️ FastAPI (Render)
 │   ├── app/
-│   │   ├── main.py     # Ponto de entrada da API
-│   │   ├── routers/    # Endpoints organizados
-│   │   ├── services/   # Lógica de negócio
-│   │   └── utils/      # Utilitários (cache, parquet reader)
-│   ├── requirements.txt
-│   └── Dockerfile
+│   │   ├── main.py              # Ponto de entrada
+│   │   ├── routers/
+│   │   │   ├── breach_router.py     # /api/v1/breaches/*
+│   │   │   └── password_router.py   # /api/v1/passwords/*
+│   │   └── services/
+│   │       ├── breach_service.py    # Lógica de breaches
+│   │       └── password_service.py  # Lógica de passwords
+│   ├── .env.example             # ⚠️ Template de configuração
+│   ├── Dockerfile
+│   └── requirements.txt
 │
-├── updater/            # Scripts de automação (GitHub Actions)
-│   ├── updater.py      # Script principal
-│   ├── config.py       # Configurações
-│   ├── requirements.txt
-│   └── data/           # Dados temporários (ignorado pelo git)
+├── updater/                     # 🔄 Scripts de atualização
+│   ├── updater.py               # Atualiza dataset de breaches
+│   ├── password_updater.py      # Atualiza dataset de passwords
+│   ├── .env.example             # ⚠️ Template de configuração
+│   └── requirements.txt
 │
 ├── .github/
 │   └── workflows/
-│       └── update-dataset.yml  # Cron job semanal
+│       └── update-dataset.yml   # Cron job semanal
 │
-└── docs/               # Documentação adicional
+├── .gitignore                   # Ficheiros ignorados
+└── README.md                    # Esta documentação
 ```
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Instalação Local
 
-### 1. Updater (Fase 1)
+### Pré-requisitos
+- Node.js 18+
+- Python 3.11+
+- Conta no Hugging Face (gratuita)
+
+### 1. Clonar o repositório
 ```bash
-cd updater
-pip install -r requirements.txt
-python updater.py
+git clone https://github.com/Sam-Ciber-Dev/eyeweb.git
+cd eyeweb
 ```
 
-### 2. Backend (Fase 2)
+### 2. Configurar variáveis de ambiente
+
+Copia os ficheiros `.env.example` para `.env` em cada pasta:
+
+```bash
+# Backend
+cp backend/.env.example backend/.env
+
+# Frontend
+cp frontend/.env.example frontend/.env.local
+
+# Updater (se necessário)
+cp updater/.env.example updater/.env
+```
+
+### 3. Iniciar o Backend
 ```bash
 cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload
+# API disponível em http://localhost:8000
+# Documentação em http://localhost:8000/docs
 ```
 
-### 3. Frontend (Fase 3)
+### 4. Iniciar o Frontend
 ```bash
 cd frontend
 npm install
 npm run dev
+# Site disponível em http://localhost:3000
 ```
 
 ---
 
-## 🔐 Variáveis de Ambiente
+## ⚙️ Configuração das Variáveis de Ambiente
 
-Criar ficheiro `.env` na raiz ou configurar no serviço de hosting:
-
+### Backend (`backend/.env`)
 ```env
-# Hugging Face (Updater + Backend)
-HF_TOKEN=hf_xxxxxxxxxxxxxxxxxxxxxxxx
-HF_DATASET_REPO=teu-username/eye-web-breaches
-
-# Backend
-ENVIRONMENT=production
+ENVIRONMENT=development
+DEBUG=true
+HF_DATASET_REPO=Samezinho/eye-web-breaches
+HF_TOKEN=                    # Opcional para repos públicos
 ```
+
+### Frontend (`frontend/.env.local`)
+```env
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+### Updater (`updater/.env`)
+```env
+HF_TOKEN=hf_xxxxxxxxxx       # Token com permissão WRITE
+HF_DATASET_REPO=Samezinho/eye-web-breaches
+```
+
+> ⚠️ **NUNCA** faças commit de ficheiros `.env` reais! Usa os ficheiros `.example` como referência.
 
 ---
 
-## 📊 Arquitetura
+## 📊 Datasets no Hugging Face
 
-```
-[Browser] → hash SHA-256 → prefixo (5 chars) → [FastAPI] → [Hugging Face Parquet]
-                                                    ↓
-                                            Lista de candidatos
-                                                    ↓
-[Browser] ← compara hash completo localmente ← JSON response
-```
-
-**Privacidade garantida:** O servidor nunca conhece o email real.
+| Dataset | Descrição | Registos |
+|---------|-----------|----------|
+| [eye-web-breaches](https://huggingface.co/datasets/Samezinho/eye-web-breaches) | Emails e telefones comprometidos | ~10,000 |
+| [eye-web-passwords](https://huggingface.co/datasets/Samezinho/eye-web-passwords) | Passwords comuns/comprometidas | ~4,000 |
 
 ---
 
-## 💰 Custos
+## 🌐 API Endpoints
 
-| Serviço | Custo |
-|---------|-------|
-| Vercel (Frontend) | €0 |
-| Render (Backend) | €0 |
-| Hugging Face (Data) | €0 |
-| GitHub Actions | €0 |
-| **Total** | **€0** |
+### Breaches (Email/Telefone)
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/api/v1/breaches/check/{prefix}` | Verifica prefixo de hash |
+| GET | `/api/v1/breaches/stats` | Estatísticas do dataset |
+
+### Passwords
+| Método | Endpoint | Descrição |
+|--------|----------|-----------|
+| GET | `/api/v1/passwords/check/{prefix}` | Verifica prefixo de password |
+| GET | `/api/v1/passwords/stats` | Estatísticas do dataset |
+
+### Documentação Interativa
+- **Swagger UI:** `http://localhost:8000/docs`
+- **ReDoc:** `http://localhost:8000/redoc`
 
 ---
 
-## � Deployment (Fase 4)
+## 🚀 Deploy em Produção
 
-### Pré-requisitos
-- Conta no [GitHub](https://github.com)
-- Conta no [Render](https://render.com)
-- Conta no [Vercel](https://vercel.com)
-- Dataset já carregado no Hugging Face ✅
-
-### 1. GitHub — Criar Repositório
-
-```bash
-# Navegar para a pasta do monorepo
-cd eye-web-monorepo
-
-# Inicializar git (se ainda não feito)
-git init
-
-# Adicionar todos os ficheiros (exceto os do .gitignore)
-git add .
-
-# Commit inicial
-git commit -m "🚀 Initial commit - Eye Web Monorepo"
-
-# Adicionar remote (substitui pelo teu URL)
-git remote add origin https://github.com/TEU-USERNAME/eye-web-monorepo.git
-
-# Push para o GitHub
-git push -u origin main
-```
-
-### 2. Render — Deploy do Backend
-
-1. Vai a [render.com](https://render.com) → **Dashboard** → **New** → **Web Service**
-2. Conecta a tua conta GitHub
-3. Seleciona o repositório `eye-web-monorepo`
-4. Configura:
-   - **Name:** `eye-web-api`
-   - **Region:** `Frankfurt (EU Central)`
-   - **Branch:** `main`
+### 1. Render (Backend)
+1. Criar novo **Web Service** no [Render](https://render.com)
+2. Conectar repositório GitHub
+3. Configurar:
    - **Root Directory:** `backend`
-   - **Runtime:** `Python 3`
    - **Build Command:** `pip install -r requirements.txt`
    - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Em **Environment Variables**, adiciona:
-   - `ENVIRONMENT` = `production`
-   - `HF_DATASET_REPO` = `Samezinho/eye-web-breaches`
-6. Clica **Create Web Service**
-7. Guarda o URL gerado (ex: `https://eye-web-api.onrender.com`)
+4. Adicionar variáveis de ambiente
 
-### 3. Vercel — Deploy do Frontend
-
-1. Vai a [vercel.com](https://vercel.com) → **Add New** → **Project**
-2. Importa o repositório `eye-web-monorepo`
-3. Configura:
-   - **Framework Preset:** `Next.js`
+### 2. Vercel (Frontend)
+1. Importar projeto no [Vercel](https://vercel.com)
+2. Configurar:
    - **Root Directory:** `frontend`
-4. Em **Environment Variables**, adiciona:
-   - `NEXT_PUBLIC_API_URL` = `https://eye-web-api.onrender.com` (o URL do Render)
-5. Clica **Deploy**
-6. Guarda o URL gerado (ex: `https://eye-web.vercel.app`)
-
-### 4. GitHub Actions — Configurar Secrets
-
-Para o workflow de atualização automática funcionar:
-
-1. Vai ao teu repositório no GitHub → **Settings** → **Secrets and variables** → **Actions**
-2. Adiciona os seguintes secrets:
-   - `HF_TOKEN` = `(o teu token do Hugging Face)`
-   - `HF_DATASET_REPO` = `Samezinho/eye-web-breaches`
+   - **Framework:** `Next.js`
+3. Adicionar `NEXT_PUBLIC_API_URL` com o URL do Render
 
 ---
 
-## 🔗 URLs de Produção
+## 💰 Custos de Operação
 
-Após o deploy, terás:
-
-| Serviço | URL |
-|---------|-----|
-| Frontend | `https://eye-web.vercel.app` |
-| Backend API | `https://eye-web-api.onrender.com` |
-| API Docs | `https://eye-web-api.onrender.com/docs` |
-| Dataset | `https://huggingface.co/datasets/Samezinho/eye-web-breaches` |
+| Serviço | Plano | Custo Mensal |
+|---------|-------|--------------|
+| Vercel | Hobby | **€0** |
+| Render | Free | **€0** |
+| Hugging Face | Free | **€0** |
+| GitHub | Free | **€0** |
+| **Total** | | **€0** |
 
 ---
 
-## �📄 Licença
+## 🔐 Segurança
 
-Projeto académico para PAP (Prova de Aptidão Profissional).
+- ✅ **K-Anonymity** — Dados sensíveis nunca saem do cliente
+- ✅ **Dependabot** — Monitorização automática de vulnerabilidades
+- ✅ **HTTPS** — Comunicação encriptada em produção
+- ✅ **Rate Limiting** — Proteção contra abuso da API
+- ✅ **Variáveis de Ambiente** — Tokens nunca no código
+
+---
+
+## 🧪 Dados de Teste
+
+Para testar a aplicação, usa estes dados que estão no dataset:
+
+### Emails
+- `leaked@test.com`
+- `hacked@example.com`
+- `pwned@eyeweb.test`
+
+### Telefones (só dígitos, sem código do país)
+- Portugal: `912345678`
+- Espanha: `612345678`
+- Reino Unido: `712345678`
+
+### Passwords
+- `password`
+- `123456`
+- `admin`
+
+---
+
+## 📄 Licença
+
+Projeto académico desenvolvido para a **Prova de Aptidão Profissional (PAP)**.
+
+**Autor:** Samuel  
+**Curso:** Técnico de Gestão e Programação de Sistemas Informáticos  
+**Ano:** 2025/2026
+
+---
+
+<div align="center">
+
+**⭐ Se este projeto te foi útil, deixa uma estrela no GitHub!**
+
+</div>
 
