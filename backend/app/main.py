@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from .config import get_settings
 from .models import HealthResponse, ErrorResponse
 from .routers import breach_router
+from .routers.password_router import router as password_router
 from .services.breach_service import get_breach_service
 
 # ===========================================
@@ -145,6 +146,11 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(
     breach_router,
     prefix=settings.API_PREFIX
+)
+
+# Router de passwords (dataset separado)
+app.include_router(
+    password_router
 )
 
 

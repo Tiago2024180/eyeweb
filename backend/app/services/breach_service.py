@@ -179,6 +179,10 @@ class BreachService:
         
         Esta é a função principal chamada pelo endpoint da API.
         
+        ATUALIZADO v2.0:
+        - Suporta nova estrutura com campos booleanos
+        - Inclui campo 'type' (email/phone)
+        
         Args:
             prefix: Prefixo do hash SHA-256 (2-6 caracteres hex)
             
@@ -189,9 +193,14 @@ class BreachService:
             [
                 {
                     "hash": "ef7241abc...",
+                    "type": "email",
                     "breach_name": "LinkedIn2021",
                     "breach_date": "2021-06-22",
-                    "data_classes": ["email", "password"]
+                    "has_password": True,
+                    "has_ip": False,
+                    "has_username": True,
+                    "has_credit_card": False,
+                    "has_history": False
                 },
                 ...
             ]
@@ -219,19 +228,20 @@ class BreachService:
             logger.info(f"Nenhum match para prefixo '{prefix}'")
             return []
         
-        # Converter para lista de dicionários
+        # Converter para lista de dicionários com NOVA ESTRUTURA
         results = []
         for _, row in filtered_df.iterrows():
-            # Processar data_classes (pode ser string separada por vírgulas)
-            data_classes = row.get("data_classes", "")
-            if isinstance(data_classes, str):
-                data_classes = [dc.strip() for dc in data_classes.split(",")]
-            
+            # NOVA ESTRUTURA v2.0: campos booleanos individuais
             results.append({
                 "hash": row["hash"],
+                "type": row.get("type", "email"),  # Default para retrocompatibilidade
                 "breach_name": row.get("breach_name", "Unknown"),
                 "breach_date": row.get("breach_date", "Unknown"),
-                "data_classes": data_classes
+                "has_password": bool(row.get("has_password", False)),
+                "has_ip": bool(row.get("has_ip", False)),
+                "has_username": bool(row.get("has_username", False)),
+                "has_credit_card": bool(row.get("has_credit_card", False)),
+                "has_history": bool(row.get("has_history", False))
             })
         
         logger.info(f"Encontrados {len(results)} resultados para prefixo '{prefix}'")

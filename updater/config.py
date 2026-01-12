@@ -68,34 +68,171 @@ PARQUET_COMPRESSION = "snappy"
 # Em produção, estes dados viriam de fontes reais (APIs públicas, etc.)
 
 # Número de registos sintéticos a gerar (para testes)
-SYNTHETIC_RECORDS = 10000
+# Dividido entre emails e telefones
+SYNTHETIC_EMAIL_RECORDS = 7000
+SYNTHETIC_PHONE_RECORDS = 3000
+
+# Tipos de dados suportados
+DATA_TYPES = ["email", "phone"]
+
+# ===========================================
+# CÓDIGOS DE PAÍS PARA TELEFONES
+# ===========================================
+
+# Lista completa de códigos de país com informações de validação
+# Formato: código -> (nome_país, min_dígitos, max_dígitos)
+COUNTRY_PHONE_CODES = {
+    # Europa
+    "+351": ("Portugal", 9, 9),
+    "+34": ("Espanha", 9, 9),
+    "+33": ("França", 9, 9),
+    "+44": ("Reino Unido", 10, 10),
+    "+49": ("Alemanha", 10, 11),
+    "+39": ("Itália", 9, 10),
+    "+31": ("Países Baixos", 9, 9),
+    "+32": ("Bélgica", 9, 9),
+    "+41": ("Suíça", 9, 9),
+    "+43": ("Áustria", 10, 10),
+    "+48": ("Polónia", 9, 9),
+    "+46": ("Suécia", 9, 9),
+    "+47": ("Noruega", 8, 8),
+    "+45": ("Dinamarca", 8, 8),
+    "+358": ("Finlândia", 9, 10),
+    "+353": ("Irlanda", 9, 9),
+    "+30": ("Grécia", 10, 10),
+    "+420": ("República Checa", 9, 9),
+    "+36": ("Hungria", 9, 9),
+    "+40": ("Roménia", 9, 9),
+    "+380": ("Ucrânia", 9, 9),
+    "+7": ("Rússia", 10, 10),
+    # América do Norte
+    "+1": ("EUA/Canadá", 10, 10),
+    "+52": ("México", 10, 10),
+    # América do Sul
+    "+55": ("Brasil", 10, 11),
+    "+54": ("Argentina", 10, 10),
+    "+56": ("Chile", 9, 9),
+    "+57": ("Colômbia", 10, 10),
+    "+58": ("Venezuela", 10, 10),
+    "+51": ("Peru", 9, 9),
+    # Ásia
+    "+86": ("China", 11, 11),
+    "+91": ("Índia", 10, 10),
+    "+81": ("Japão", 10, 10),
+    "+82": ("Coreia do Sul", 9, 10),
+    "+84": ("Vietname", 9, 10),
+    "+66": ("Tailândia", 9, 9),
+    "+60": ("Malásia", 9, 10),
+    "+65": ("Singapura", 8, 8),
+    "+62": ("Indonésia", 9, 12),
+    "+63": ("Filipinas", 10, 10),
+    "+971": ("Emirados Árabes", 9, 9),
+    "+966": ("Arábia Saudita", 9, 9),
+    "+972": ("Israel", 9, 9),
+    "+90": ("Turquia", 10, 10),
+    # África
+    "+27": ("África do Sul", 9, 9),
+    "+20": ("Egito", 10, 10),
+    "+234": ("Nigéria", 10, 10),
+    "+254": ("Quénia", 9, 9),
+    "+212": ("Marrocos", 9, 9),
+    # Oceânia
+    "+61": ("Austrália", 9, 9),
+    "+64": ("Nova Zelândia", 9, 10),
+}
 
 # Lista de breaches fictícios para dados de teste
+# NOVA ESTRUTURA: com campos booleanos individuais para simular dados reais
 SAMPLE_BREACHES = [
     {
         "name": "ExampleSite2024",
         "date": "2024-03-15",
-        "data_classes": ["email", "password_hash", "username"]
+        "has_password": True,
+        "has_ip": False,
+        "has_username": True,
+        "has_credit_card": False,
+        "has_history": False
     },
     {
-        "name": "DemoApp2023", 
+        "name": "DemoApp2023",
         "date": "2023-11-20",
-        "data_classes": ["email", "phone", "address"]
+        "has_password": False,
+        "has_ip": True,
+        "has_username": False,
+        "has_credit_card": False,
+        "has_history": True
     },
     {
         "name": "TestService2024",
         "date": "2024-01-10",
-        "data_classes": ["email", "ip_address", "user_agent"]
+        "has_password": True,
+        "has_ip": True,
+        "has_username": True,
+        "has_credit_card": False,
+        "has_history": False
     },
     {
         "name": "SampleDB2022",
         "date": "2022-08-05",
-        "data_classes": ["email", "password", "full_name"]
+        "has_password": True,
+        "has_ip": False,
+        "has_username": True,
+        "has_credit_card": False,
+        "has_history": False
     },
     {
         "name": "MockPlatform2024",
         "date": "2024-06-22",
-        "data_classes": ["email", "credit_card_partial", "purchase_history"]
+        "has_password": False,
+        "has_ip": False,
+        "has_username": False,
+        "has_credit_card": True,
+        "has_history": True
+    },
+    {
+        "name": "FinanceLeaks2023",
+        "date": "2023-09-01",
+        "has_password": True,
+        "has_ip": True,
+        "has_username": True,
+        "has_credit_card": True,
+        "has_history": True
+    },
+    {
+        "name": "SocialMediaBreach2024",
+        "date": "2024-05-18",
+        "has_password": True,
+        "has_ip": True,
+        "has_username": True,
+        "has_credit_card": False,
+        "has_history": True
+    },
+    {
+        "name": "EcommerceHack2023",
+        "date": "2023-12-03",
+        "has_password": False,
+        "has_ip": False,
+        "has_username": False,
+        "has_credit_card": True,
+        "has_history": True
+    },
+    {
+        "name": "GamingDB2024",
+        "date": "2024-02-28",
+        "has_password": True,
+        "has_ip": True,
+        "has_username": True,
+        "has_credit_card": False,
+        "has_history": False
+    },
+    {
+        "name": "HealthcareExposure2023",
+        "date": "2023-07-14",
+        "has_password": False,
+        "has_ip": True,
+        "has_username": False,
+        "has_credit_card": False,
+        "has_history": True
     }
 ]
 

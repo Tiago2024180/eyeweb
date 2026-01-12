@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { checkEmailBreach, BreachInfo } from '@/lib/api';
+import BreachResults from './BreachResults';
 
 export default function EmailChecker() {
   const [email, setEmail] = useState('');
@@ -44,14 +45,14 @@ export default function EmailChecker() {
           <input
             type="email"
             className="input"
-            placeholder="Introduz o teu email ou telefone..."
+            placeholder="Introduz o teu email..."
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
         </div>
         <button type="submit" className="btn" disabled={loading || !email.trim()}>
-          {loading ? 'A verificar...' : 'Verificar'}
+          {loading ? 'A verificar...' : 'Verificar Email'}
         </button>
       </form>
 
@@ -69,36 +70,11 @@ export default function EmailChecker() {
       )}
 
       {result && result.searched && !loading && (
-        <div className="result-container">
-          {result.found ? (
-            <>
-              <span className="status-badge danger">
-                <i className="fa-solid fa-triangle-exclamation"></i> Comprometido
-              </span>
-              <h3>Encontrado em {result.breaches.length} fuga(s):</h3>
-              {result.breaches.map((breach, idx) => (
-                <div key={idx} className="breach-item">
-                  <h4>{breach.name}</h4>
-                  <p><strong>Data:</strong> {breach.date}</p>
-                  <div className="data-classes">
-                    {breach.data_classes.map((dc, i) => (
-                      <span key={i} className="data-class-tag">{dc}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </>
-          ) : (
-            <div className="no-breaches">
-              <div className="icon">✅</div>
-              <span className="status-badge safe">Seguro</span>
-              <p>Nenhuma fuga de dados encontrada!</p>
-              <p style={{ color: 'var(--gray)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-                Os teus dados não aparecem nas bases de dados conhecidas.
-              </p>
-            </div>
-          )}
-        </div>
+        <BreachResults 
+          found={result.found} 
+          breaches={result.breaches} 
+          type="email"
+        />
       )}
 
       <p style={{ color: 'var(--gray)', fontSize: '0.8rem', marginTop: '1rem', textAlign: 'center' }}>

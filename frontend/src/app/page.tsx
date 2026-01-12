@@ -4,19 +4,19 @@ import { useState } from 'react';
 import Navbar from '@/components/Navbar';
 import EyeIntro from '@/components/EyeIntro';
 import Tabs from '@/components/Tabs';
-import EmailChecker from '@/components/EmailChecker';
+import DataChecker from '@/components/DataChecker';
 import UrlChecker from '@/components/UrlChecker';
 import PasswordChecker from '@/components/PasswordChecker';
 
 const TABS = [
-  { id: 'email', label: 'Dados Pessoais', icon: 'fa-solid fa-envelope' },
-  { id: 'url', label: 'Verificar URL', icon: 'fa-solid fa-link' },
+  { id: 'data', label: 'Dados Pessoais', icon: 'fa-solid fa-user-shield' },
   { id: 'password', label: 'Força da Password', icon: 'fa-solid fa-key' },
+  { id: 'url', label: 'Verificar URL', icon: 'fa-solid fa-link' },
 ];
 
 export default function Home() {
   const [showContent, setShowContent] = useState(false);
-  const [activeTab, setActiveTab] = useState('email');
+  const [activeTab, setActiveTab] = useState('data');
 
   const handleIntroComplete = () => {
     setShowContent(true);
@@ -40,9 +40,9 @@ export default function Home() {
           <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
 
           {/* Conteúdo das Tabs */}
-          {activeTab === 'email' && (
+          {activeTab === 'data' && (
             <section>
-              <EmailChecker />
+              <DataChecker />
             </section>
           )}
 
@@ -60,7 +60,7 @@ export default function Home() {
         </div>
 
         <footer className="footer">
-          <p>Eye Web © 2025 - Projeto PAP</p>
+          <p>Eye Web © 2026 - Projeto PAP</p>
           <p>Privacidade garantida com K-Anonymity</p>
         </footer>
       </div>

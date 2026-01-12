@@ -94,9 +94,14 @@ async def get_service() -> BreachService:
                         "candidates": [
                             {
                                 "hash": "ef724abc123...",
+                                "type": "email",
                                 "breach_name": "LinkedIn2021",
                                 "breach_date": "2021-06-22",
-                                "data_classes": ["email", "password"]
+                                "has_password": True,
+                                "has_ip": False,
+                                "has_username": True,
+                                "has_credit_card": False,
+                                "has_history": False
                             }
                         ]
                     }
@@ -146,13 +151,18 @@ async def check_breaches(
         # Consultar serviço
         results = await service.check_breaches(prefix)
         
-        # Converter para modelo de resposta
+        # Converter para modelo de resposta (NOVA ESTRUTURA v2.0)
         candidates = [
             BreachInfo(
                 hash=r["hash"],
+                type=r.get("type", "email"),
                 breach_name=r["breach_name"],
                 breach_date=r["breach_date"],
-                data_classes=r["data_classes"]
+                has_password=r.get("has_password", False),
+                has_ip=r.get("has_ip", False),
+                has_username=r.get("has_username", False),
+                has_credit_card=r.get("has_credit_card", False),
+                has_history=r.get("has_history", False)
             )
             for r in results
         ]
@@ -212,14 +222,21 @@ async def get_stats(
             # Retornar valores padrão se não houver metadados
             return StatsResponse(
                 total_records=0,
+                total_emails=0,
+                total_phones=0,
                 total_partitions=256,
                 prefix_length=2,
                 last_updated=None
             )
         
+        # NOVA ESTRUTURA v2.0: suporta metadados com statistics
+        stats = metadata.get("statistics", {})
+        
         return StatsResponse(
-            total_records=metadata.get("total_records", 0),
-            total_partitions=metadata.get("total_partitions", 256),
+            total_records=stats.get("total_records", metadata.get("total_records", 0)),
+            total_emails=stats.get("total_emails", 0),
+            total_phones=stats.get("total_phones", 0),
+            total_partitions=stats.get("total_partitions", metadata.get("total_partitions", 256)),
             prefix_length=metadata.get("prefix_length", 2),
             last_updated=metadata.get("generated_at")
         )

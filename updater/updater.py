@@ -46,8 +46,11 @@ from config import (
     DATA_DIR,
     OUTPUT_DIR,
     PARQUET_COMPRESSION,
-    SYNTHETIC_RECORDS,
+    SYNTHETIC_EMAIL_RECORDS,
+    SYNTHETIC_PHONE_RECORDS,
     SAMPLE_BREACHES,
+    COUNTRY_PHONE_CODES,
+    DATA_TYPES,
     LOG_LEVEL,
     LOG_DATE_FORMAT,
     validate_config,
@@ -103,6 +106,54 @@ def normalize_email(email: str) -> str:
         email = f"{username}@{domain}"
     
     return email
+
+
+def normalize_phone(phone: str, country_code: str = "") -> str:
+    """
+    Normaliza um número de telefone para garantir consistência no hashing.
+    
+    IMPORTANTE para K-Anonymity: O número completo (com código de país)
+    deve ser normalizado antes de gerar o hash. O cliente (frontend)
+    deve usar EXATAMENTE a mesma lógica de normalização.
+    
+    Operações realizadas:
+    - Remove todos os espaços, hífens, parênteses
+    - Garante que o código de país está presente
+    - Garante formato: +XXXYYYYYYYYY (sem separadores)
+    
+    Args:
+        phone: Número de telefone (pode ter formatação)
+        country_code: Código do país (ex: "+351")
+        
+    Returns:
+        str: Telefone normalizado no formato +XXXYYYYYYYYY
+        
+    Exemplo:
+        >>> normalize_phone("912 341 801", "+351")
+        "+351912341801"
+        >>> normalize_phone("+351 912-341-801")
+        "+351912341801"
+    """
+    # Remover todos os caracteres não numéricos, exceto o + inicial
+    cleaned = ""
+    for i, char in enumerate(phone):
+        if char == "+" and i == 0:
+            cleaned += char
+        elif char.isdigit():
+            cleaned += char
+    
+    # Se não começa com +, adicionar o código de país
+    if not cleaned.startswith("+"):
+        if country_code:
+            # Garantir que o código de país começa com +
+            if not country_code.startswith("+"):
+                country_code = "+" + country_code
+            cleaned = country_code + cleaned
+        else:
+            # Se não há código de país, assumir +351 (Portugal) como default
+            cleaned = "+351" + cleaned
+    
+    return cleaned
 
 
 def generate_sha256_hash(text: str) -> str:
@@ -161,7 +212,8 @@ def generate_random_email() -> str:
     # Domínios comuns para simular
     domains = [
         "gmail.com", "hotmail.com", "yahoo.com", "outlook.com",
-        "example.com", "test.org", "demo.net", "sample.io"
+        "example.com", "test.org", "demo.net", "sample.io",
+        "protonmail.com", "icloud.com", "live.com", "mail.com"
     ]
     
     # Gerar username aleatório
@@ -174,48 +226,200 @@ def generate_random_email() -> str:
     return f"{username}@{domain}"
 
 
-def generate_synthetic_dataset(num_records: int = SYNTHETIC_RECORDS) -> pd.DataFrame:
+def generate_random_phone() -> tuple:
+    """
+    Gera um número de telefone aleatório com código de país.
+    
+    Returns:
+        tuple: (telefone_completo_normalizado, código_país)
+        
+    Exemplo:
+        >>> generate_random_phone()
+        ("+351912345678", "+351")
+    """
+    # Selecionar código de país aleatório
+    country_code = random.choice(list(COUNTRY_PHONE_CODES.keys()))
+    country_name, min_digits, max_digits = COUNTRY_PHONE_CODES[country_code]
+    
+    # Gerar número com o comprimento correto para o país
+    num_digits = random.randint(min_digits, max_digits)
+    
+    # Primeiro dígito não pode ser 0 para a maioria dos países
+    first_digit = random.choice("123456789")
+    remaining_digits = ''.join(random.choices(string.digits, k=num_digits - 1))
+    
+    phone_number = first_digit + remaining_digits
+    
+    # Normalizar (código + número, sem espaços)
+    normalized = f"{country_code}{phone_number}"
+    
+    return normalized, country_code
+
+
+# ===========================================
+# DADOS DE TESTE CONHECIDOS (para verificação)
+# ===========================================
+
+# Emails que SABEMOS que estão na base de dados
+# Usar estes para testar se o sistema deteta breaches corretamente
+TEST_EMAILS = [
+    ("leaked@test.com", "TestBreach2024", "2024-01-15"),
+    ("hacked@example.com", "ExampleHack2023", "2023-06-20"),
+    ("breach@demo.com", "DemoLeak2024", "2024-03-10"),
+    ("exposed@sample.com", "SampleExposure2023", "2023-11-05"),
+    ("pwned@eyeweb.test", "EyeWebTest2024", "2024-07-01"),
+]
+
+# Telefones que SABEMOS que estão na base de dados
+# Formato: (número, código_país, breach_name, breach_date)
+# IMPORTANTE: Usar estes números EXATAMENTE para testar
+TEST_PHONES = [
+    ("+351912345678", "DataBreach2024", "2024-01-20"),      # Portugal
+    ("+351961234567", "SocialMediaBreach2024", "2024-05-18"),  # Portugal
+    ("+34612345678", "EcommerceHack2023", "2023-12-03"),    # Espanha
+    ("+44712345678", "GamingDB2024", "2024-02-28"),         # Reino Unido (exemplo: 07123456780 -> +447123456780)
+    ("+5511912345678", "HealthcareExposure2023", "2023-07-14"),  # Brasil
+]
+
+
+def generate_synthetic_dataset() -> pd.DataFrame:
     """
     Gera um dataset sintético de breaches para testes/demonstração.
     
+    NOVA ESTRUTURA com:
+    - Suporte para emails E telefones
+    - Campos booleanos individuais para cada tipo de dado exposto
+    - Coluna 'type' para distinguir email de phone
+    
     NOTA: Em produção, esta função seria substituída por uma que
     obtém dados reais de APIs públicas (ex: HIBP API, se disponível).
-    
-    Args:
-        num_records: Número de registos a gerar
         
     Returns:
         pd.DataFrame: Dataset com colunas:
-            - hash: Hash SHA-256 do email
+            - hash: Hash SHA-256 do email/phone
+            - type: "email" ou "phone"
             - prefix: Prefixo do hash (para particionamento)
             - breach_name: Nome do breach
             - breach_date: Data do breach
-            - data_classes: Tipos de dados expostos
+            - has_password: Boolean
+            - has_ip: Boolean
+            - has_username: Boolean
+            - has_credit_card: Boolean
+            - has_history: Boolean
     """
-    logger.info(f"🔄 A gerar {num_records:,} registos sintéticos...")
+    total_records = SYNTHETIC_EMAIL_RECORDS + SYNTHETIC_PHONE_RECORDS
+    logger.info(f"🔄 A gerar {total_records:,} registos sintéticos...")
+    logger.info(f"   📧 Emails: {SYNTHETIC_EMAIL_RECORDS:,}")
+    logger.info(f"   📱 Telefones: {SYNTHETIC_PHONE_RECORDS:,}")
     
     records = []
     
-    # Usar tqdm para mostrar progresso
-    for _ in tqdm(range(num_records), desc="Gerando dados", unit="registos"):
+    # ===========================================
+    # PRIMEIRO: Adicionar dados de teste CONHECIDOS
+    # ===========================================
+    logger.info("📌 A adicionar emails de teste conhecidos...")
+    for email, breach_name, breach_date in TEST_EMAILS:
+        normalized = normalize_email(email)
+        data_hash = generate_sha256_hash(normalized)
+        prefix = get_hash_prefix(data_hash)
+        
+        record = {
+            "hash": data_hash,
+            "type": "email",
+            "prefix": prefix,
+            "breach_name": breach_name,
+            "breach_date": breach_date,
+            "has_password": True,
+            "has_ip": True,
+            "has_username": True,
+            "has_credit_card": False,
+            "has_history": True
+        }
+        records.append(record)
+        logger.debug(f"   ✅ {email} -> prefix={prefix}")
+    
+    logger.info("📌 A adicionar telefones de teste conhecidos...")
+    for phone, breach_name, breach_date in TEST_PHONES:
+        # O telefone já está normalizado na lista
+        data_hash = generate_sha256_hash(phone)
+        prefix = get_hash_prefix(data_hash)
+        
+        record = {
+            "hash": data_hash,
+            "type": "phone",
+            "prefix": prefix,
+            "breach_name": breach_name,
+            "breach_date": breach_date,
+            "has_password": True,
+            "has_ip": True,
+            "has_username": False,
+            "has_credit_card": True,
+            "has_history": True
+        }
+        records.append(record)
+        logger.debug(f"   ✅ {phone} -> prefix={prefix}")
+    
+    logger.info(f"   📌 Total de dados de teste: {len(TEST_EMAILS)} emails + {len(TEST_PHONES)} telefones")
+    
+    # ===========================================
+    # DEPOIS: Gerar dados aleatórios
+    # ===========================================
+    
+    # === GERAR REGISTOS DE EMAIL ===
+    logger.info("📧 A gerar registos de email aleatórios...")
+    for _ in tqdm(range(SYNTHETIC_EMAIL_RECORDS), desc="Emails", unit="registos"):
         # Gerar email aleatório
         email = generate_random_email()
         
         # Normalizar e gerar hash
-        normalized_email = normalize_email(email)
-        email_hash = generate_sha256_hash(normalized_email)
-        prefix = get_hash_prefix(email_hash)
+        normalized = normalize_email(email)
+        data_hash = generate_sha256_hash(normalized)
+        prefix = get_hash_prefix(data_hash)
         
         # Selecionar breach aleatório
         breach = random.choice(SAMPLE_BREACHES)
         
-        # Criar registo
+        # Criar registo com a NOVA ESTRUTURA
         record = {
-            "hash": email_hash,
+            "hash": data_hash,
+            "type": "email",
             "prefix": prefix,
             "breach_name": breach["name"],
             "breach_date": breach["date"],
-            "data_classes": ",".join(breach["data_classes"])  # Serializar lista como string
+            "has_password": breach["has_password"],
+            "has_ip": breach["has_ip"],
+            "has_username": breach["has_username"],
+            "has_credit_card": breach["has_credit_card"],
+            "has_history": breach["has_history"]
+        }
+        
+        records.append(record)
+    
+    # === GERAR REGISTOS DE TELEFONE ===
+    logger.info("📱 A gerar registos de telefone aleatórios...")
+    for _ in tqdm(range(SYNTHETIC_PHONE_RECORDS), desc="Telefones", unit="registos"):
+        # Gerar telefone aleatório
+        phone, country_code = generate_random_phone()
+        
+        # O telefone já vem normalizado da função
+        data_hash = generate_sha256_hash(phone)
+        prefix = get_hash_prefix(data_hash)
+        
+        # Selecionar breach aleatório
+        breach = random.choice(SAMPLE_BREACHES)
+        
+        # Criar registo com a NOVA ESTRUTURA
+        record = {
+            "hash": data_hash,
+            "type": "phone",
+            "prefix": prefix,
+            "breach_name": breach["name"],
+            "breach_date": breach["date"],
+            "has_password": breach["has_password"],
+            "has_ip": breach["has_ip"],
+            "has_username": breach["has_username"],
+            "has_credit_card": breach["has_credit_card"],
+            "has_history": breach["has_history"]
         }
         
         records.append(record)
@@ -223,9 +427,12 @@ def generate_synthetic_dataset(num_records: int = SYNTHETIC_RECORDS) -> pd.DataF
     # Criar DataFrame
     df = pd.DataFrame(records)
     
+    # Estatísticas finais
     logger.info(f"✅ Dataset gerado com {len(df):,} registos")
     logger.info(f"   Colunas: {list(df.columns)}")
     logger.info(f"   Prefixos únicos: {df['prefix'].nunique()}")
+    logger.info(f"   Emails: {len(df[df['type'] == 'email']):,}")
+    logger.info(f"   Telefones: {len(df[df['type'] == 'phone']):,}")
     
     return df
 
@@ -397,22 +604,54 @@ def create_metadata_file(partition_files: Dict[str, str], output_dir: str = OUTP
     
     # Calcular estatísticas
     total_records = 0
+    total_emails = 0
+    total_phones = 0
     partition_stats = {}
     
     for prefix, file_path in partition_files.items():
         df = pd.read_parquet(file_path)
         count = len(df)
         total_records += count
-        partition_stats[prefix] = count
+        
+        # Contar por tipo se a coluna existir
+        if 'type' in df.columns:
+            email_count = len(df[df['type'] == 'email'])
+            phone_count = len(df[df['type'] == 'phone'])
+            total_emails += email_count
+            total_phones += phone_count
+            partition_stats[prefix] = {
+                "total": count,
+                "emails": email_count,
+                "phones": phone_count
+            }
+        else:
+            partition_stats[prefix] = {"total": count}
     
-    # Criar metadados
+    # Criar metadados com a NOVA ESTRUTURA
     metadata = {
-        "version": "1.0.0",
+        "version": "2.0.0",  # Versão atualizada para nova estrutura
         "generated_at": datetime.now().isoformat(),
         "prefix_length": PREFIX_LENGTH,
         "compression": PARQUET_COMPRESSION,
-        "total_records": total_records,
-        "total_partitions": len(partition_files),
+        "schema": {
+            "columns": [
+                {"name": "hash", "type": "string", "description": "SHA-256 do email/phone normalizado"},
+                {"name": "type", "type": "string", "description": "Tipo de dado: 'email' ou 'phone'"},
+                {"name": "breach_name", "type": "string", "description": "Nome do breach"},
+                {"name": "breach_date", "type": "string", "description": "Data do breach (YYYY-MM-DD)"},
+                {"name": "has_password", "type": "boolean", "description": "Password foi exposta?"},
+                {"name": "has_ip", "type": "boolean", "description": "IP foi exposto?"},
+                {"name": "has_username", "type": "boolean", "description": "Username foi exposto?"},
+                {"name": "has_credit_card", "type": "boolean", "description": "Cartão de crédito foi exposto?"},
+                {"name": "has_history", "type": "boolean", "description": "Histórico foi exposto?"}
+            ]
+        },
+        "statistics": {
+            "total_records": total_records,
+            "total_emails": total_emails,
+            "total_phones": total_phones,
+            "total_partitions": len(partition_files)
+        },
         "partitions": partition_stats
     }
     
@@ -422,6 +661,9 @@ def create_metadata_file(partition_files: Dict[str, str], output_dir: str = OUTP
         json.dump(metadata, f, indent=2, ensure_ascii=False)
     
     logger.info(f"📋 Metadados guardados em: {metadata_path}")
+    logger.info(f"   Total: {total_records:,} registos")
+    logger.info(f"   Emails: {total_emails:,}")
+    logger.info(f"   Telefones: {total_phones:,}")
     
     return metadata_path
 

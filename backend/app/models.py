@@ -38,16 +38,25 @@ class BreachCheckRequest(BaseModel):
 class BreachInfo(BaseModel):
     """
     Informações sobre um breach individual.
+    
+    NOVA ESTRUTURA v2.0:
+    - Campos booleanos individuais para cada tipo de dado exposto
+    - Campo 'type' para distinguir email de phone
     """
     
     hash: str = Field(
         ...,
-        description="Hash SHA-256 completo do email comprometido"
+        description="Hash SHA-256 completo do email/telefone comprometido"
+    )
+    
+    type: str = Field(
+        ...,
+        description="Tipo de dado: 'email' ou 'phone'"
     )
     
     breach_name: str = Field(
         ...,
-        description="Nome do breach/leak onde o email foi encontrado"
+        description="Nome do breach/leak onde o dado foi encontrado"
     )
     
     breach_date: str = Field(
@@ -55,9 +64,30 @@ class BreachInfo(BaseModel):
         description="Data do breach (formato: YYYY-MM-DD)"
     )
     
-    data_classes: List[str] = Field(
-        ...,
-        description="Tipos de dados expostos (ex: email, password, phone)"
+    # Campos booleanos para cada tipo de dado exposto
+    has_password: bool = Field(
+        default=False,
+        description="Password foi exposta neste breach?"
+    )
+    
+    has_ip: bool = Field(
+        default=False,
+        description="Endereço IP foi exposto neste breach?"
+    )
+    
+    has_username: bool = Field(
+        default=False,
+        description="Username foi exposto neste breach?"
+    )
+    
+    has_credit_card: bool = Field(
+        default=False,
+        description="Dados de cartão de crédito foram expostos neste breach?"
+    )
+    
+    has_history: bool = Field(
+        default=False,
+        description="Histórico de atividade foi exposto neste breach?"
     )
 
 
@@ -109,11 +139,24 @@ class HealthResponse(BaseModel):
 class StatsResponse(BaseModel):
     """
     Response com estatísticas do dataset.
+    
+    NOVA ESTRUTURA v2.0:
+    - Separação de contagem por tipo (emails vs telefones)
     """
     
     total_records: int = Field(
         ...,
         description="Número total de registos no dataset"
+    )
+    
+    total_emails: int = Field(
+        default=0,
+        description="Número de registos de email"
+    )
+    
+    total_phones: int = Field(
+        default=0,
+        description="Número de registos de telefone"
     )
     
     total_partitions: int = Field(
