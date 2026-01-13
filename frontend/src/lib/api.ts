@@ -560,8 +560,66 @@ export async function checkPasswordBreach(password: string): Promise<{
   return { found: matchCount > 0, breachCount: matchCount, fullHash };
 }
 
+// ===========================================
+// URL CHECKER - Verificação com IA
+// ===========================================
+
+export interface UrlCheckResult {
+  url: string;
+  url_hash: string;
+  status: 'safe' | 'suspicious' | 'malicious' | 'unknown' | 'analyzing';
+  ai_opinion: string | null;
+  threat_details: {
+    google_safe_browsing?: {
+      checked: boolean;
+      is_threat?: boolean;
+      threats?: string[];
+      source?: string;
+      error?: string;
+    };
+    urlscan?: {
+      checked: boolean;
+      scan_submitted?: boolean;
+      scan_uuid?: string;
+      result_url?: string;
+      source?: string;
+      note?: string;
+      error?: string;
+    };
+  };
+  last_check: string;
+  from_cache: boolean;
+  cache_age_seconds: number | null;
+  recheck_triggered: boolean | null;
+}
+
+/**
+ * Verifica a segurança de um URL usando a API com IA
+ * Utiliza Google Safe Browsing, URLScan.io e Groq AI
+ */
+export async function checkUrlWithAI(url: string, forceRecheck: boolean = false): Promise<UrlCheckResult> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/urls/check`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: url,
+      force_recheck: forceRecheck,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Erro desconhecido' }));
+    throw new Error(error.detail || `Erro ${response.status}`);
+  }
+
+  return response.json();
+}
+
 /**
  * Verifica se um URL parece suspeito (verificação básica local)
+ * NOTA: Esta função é mantida para verificação offline/fallback
  */
 export function checkUrlSecurity(url: string): {
   safe: boolean;

@@ -24,6 +24,7 @@ from .config import get_settings
 from .models import HealthResponse, ErrorResponse
 from .routers import breach_router
 from .routers.password_router import router as password_router
+from .routers.url_router import router as url_router
 from .services.breach_service import get_breach_service
 
 # ===========================================
@@ -151,6 +152,12 @@ app.include_router(
 # Router de passwords (dataset separado)
 app.include_router(
     password_router
+)
+
+# Router de URL Checker (novo!)
+app.include_router(
+    url_router,
+    prefix=settings.API_PREFIX
 )
 
 

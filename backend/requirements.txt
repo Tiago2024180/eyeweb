@@ -36,3 +36,16 @@ pydantic-settings>=2.1.0
 
 # --- Logging ---
 # structlog>=24.1.0  # Opcional: logging estruturado
+
+# ===========================================
+# URL CHECKER — Novas dependências
+# ===========================================
+
+# --- Supabase (Cache de URLs) ---
+supabase>=2.0.0
+
+# --- Groq (AI com Llama 3) ---
+groq>=0.4.0
+
+# --- Async HTTP ---
+# aiohttp já está incluído acima

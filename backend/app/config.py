@@ -109,6 +109,38 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
     
     # ===========================================
+    # SUPABASE (URL Checker Cache)
+    # ===========================================
+    
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+    
+    # ===========================================
+    # GROQ (AI Analysis)
+    # ===========================================
+    
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    
+    # ===========================================
+    # URL SCANNING SERVICES
+    # ===========================================
+    
+    GOOGLE_SAFE_BROWSING_KEY: str = ""
+    URLSCAN_API_KEY: str = ""
+    
+    # ===========================================
+    # URL CHECKER SETTINGS
+    # ===========================================
+    
+    # Tempo de cache em segundos (24 horas)
+    URL_CACHE_TTL_SECONDS: int = 86400
+    
+    # Tempo máximo para considerar cache "fresco" (1 hora)
+    URL_CACHE_FRESH_SECONDS: int = 3600
+    
+    # ===========================================
     # CONFIGURAÇÃO DO PYDANTIC
     # ===========================================
     

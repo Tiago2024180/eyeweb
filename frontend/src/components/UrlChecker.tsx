@@ -1,24 +1,58 @@
 'use client';
 
 import { useState } from 'react';
-import { checkUrlSecurity } from '@/lib/api';
+import { checkUrlWithAI, UrlCheckResult } from '@/lib/api';
 
 export default function UrlChecker() {
   const [url, setUrl] = useState('');
-  const [result, setResult] = useState<{
-    safe: boolean;
-    warnings: string[];
-    details: { https: boolean; suspiciousTLD: boolean; ipAddress: boolean };
-    checked: boolean;
-  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<UrlCheckResult | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!url.trim()) return;
     
-    const data = checkUrlSecurity(url);
-    setResult({ ...data, checked: true });
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const data = await checkUrlWithAI(url);
+      setResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao verificar URL');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'safe':
+        return <span className="status-badge safe">🔒 URL Seguro</span>;
+      case 'suspicious':
+        return <span className="status-badge warning">⚠️ URL Suspeito</span>;
+      case 'malicious':
+        return <span className="status-badge danger">🚨 URL Perigoso</span>;
+      case 'analyzing':
+        return <span className="status-badge">🔄 A analisar...</span>;
+      default:
+        return <span className="status-badge">❓ Desconhecido</span>;
+    }
+  };
+
+  const formatCacheInfo = (result: UrlCheckResult) => {
+    if (!result.from_cache) return 'Verificação nova';
+    if (result.cache_age_seconds) {
+      const minutes = Math.floor(result.cache_age_seconds / 60);
+      if (minutes < 1) return `Cache (< 1 min)`;
+      if (minutes < 60) return `Cache (${minutes} min)`;
+      const hours = Math.floor(minutes / 60);
+      return `Cache (${hours}h)`;
+    }
+    return 'Do cache';
   };
 
   return (
@@ -31,47 +65,107 @@ export default function UrlChecker() {
             placeholder="Introduz um URL para verificar..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
+            disabled={loading}
             required
           />
         </div>
-        <button type="submit" className="btn" disabled={!url.trim()}>
-          Verificar URL
+        <button type="submit" className="btn" disabled={!url.trim() || loading}>
+          {loading ? '🔄 A verificar...' : 'Verificar URL'}
         </button>
       </form>
 
-      {result && result.checked && (
+      {error && (
         <div className="result-container">
-          {result.safe ? (
-            <div className="no-breaches">
-              <div className="icon">🔒</div>
-              <span className="status-badge safe">URL Seguro</span>
-              <p>Não foram detetados indicadores suspeitos.</p>
+          <div className="no-breaches" style={{ borderColor: 'var(--danger)' }}>
+            <span className="status-badge danger">❌ Erro</span>
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="result-container">
+          <div className={result.status === 'safe' ? 'no-breaches' : ''}>
+            {getStatusBadge(result.status)}
+            
+            {/* Opinião da IA */}
+            {result.ai_opinion && (
+              <div style={{ 
+                marginTop: '1rem', 
+                padding: '1rem', 
+                background: 'rgba(255,255,255,0.05)', 
+                borderRadius: '8px',
+                borderLeft: '3px solid var(--primary)'
+              }}>
+                <p style={{ margin: 0, fontWeight: 'bold', color: 'var(--primary)', marginBottom: '0.5rem' }}>
+                  🤖 Análise IA:
+                </p>
+                <p style={{ margin: 0, lineHeight: 1.6 }}>{result.ai_opinion}</p>
+              </div>
+            )}
+
+            {/* Detalhes dos scanners */}
+            <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--gray)' }}>
+              <p style={{ marginBottom: '0.5rem' }}><strong>Verificações:</strong></p>
+              
+              {/* Google Safe Browsing */}
+              <p style={{ margin: '0.25rem 0' }}>
+                • Google Safe Browsing: {' '}
+                {result.threat_details.google_safe_browsing?.checked ? (
+                  result.threat_details.google_safe_browsing.is_threat ? (
+                    <span style={{ color: 'var(--danger)' }}>⚠️ Ameaça detectada</span>
+                  ) : (
+                    <span style={{ color: 'var(--success)' }}>✅ Limpo</span>
+                  )
+                ) : (
+                  <span style={{ color: 'var(--warning)' }}>❓ Não verificado</span>
+                )}
+              </p>
+              
+              {/* URLScan.io */}
+              <p style={{ margin: '0.25rem 0' }}>
+                • URLScan.io: {' '}
+                {result.threat_details.urlscan?.checked ? (
+                  result.threat_details.urlscan.scan_submitted ? (
+                    <span style={{ color: 'var(--success)' }}>
+                      ✅ Scan submetido
+                      {result.threat_details.urlscan.result_url && (
+                        <a 
+                          href={result.threat_details.urlscan.result_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          style={{ marginLeft: '0.5rem', color: 'var(--primary)' }}
+                        >
+                          Ver detalhes ↗
+                        </a>
+                      )}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--warning)' }}>⏳ Em processamento</span>
+                  )
+                ) : (
+                  <span style={{ color: 'var(--warning)' }}>
+                    {result.threat_details.urlscan?.error ? '❌ Erro' : '❓ Não verificado'}
+                  </span>
+                )}
+              </p>
             </div>
-          ) : (
-            <>
-              <span className="status-badge warning">
-                <i className="fa-solid fa-triangle-exclamation"></i> Avisos Detetados
-              </span>
-              <h3>Problemas encontrados:</h3>
-              {result.warnings.map((warning, idx) => (
-                <div key={idx} className="breach-item" style={{ borderLeftColor: 'var(--warning)' }}>
-                  <p><i className="fa-solid fa-exclamation-circle" style={{ color: 'var(--warning)' }}></i> {warning}</p>
-                </div>
-              ))}
-            </>
-          )}
-          
-          <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--gray)' }}>
-            <p><strong>Detalhes:</strong></p>
-            <p>• HTTPS: {result.details.https ? '✅ Sim' : '❌ Não'}</p>
-            <p>• TLD Suspeito: {result.details.suspiciousTLD ? '⚠️ Sim' : '✅ Não'}</p>
-            <p>• IP Direto: {result.details.ipAddress ? '⚠️ Sim' : '✅ Não'}</p>
+
+            {/* Info do cache */}
+            <p style={{ 
+              marginTop: '1rem', 
+              fontSize: '0.8rem', 
+              color: 'var(--gray)',
+              textAlign: 'right'
+            }}>
+              {formatCacheInfo(result)} • {new Date(result.last_check).toLocaleString('pt-PT')}
+            </p>
           </div>
         </div>
       )}
 
       <p style={{ color: 'var(--gray)', fontSize: '0.8rem', marginTop: '1rem', textAlign: 'center' }}>
-        🛡️ Verificação feita localmente - nenhum dado enviado
+        🤖 Verificação com IA (Google Safe Browsing + URLScan.io + Llama 3)
       </p>
     </div>
   );
