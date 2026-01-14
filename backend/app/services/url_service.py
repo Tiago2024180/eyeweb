@@ -276,19 +276,18 @@ async def get_ai_opinion(url: str, scan_results: dict) -> Optional[str]:
     
     # Construir prompt com contexto dos scans
     google_result = scan_results.get("google_safe_browsing", {})
-    urlscan_result = scan_results.get("urlscan", {})
     
     prompt = f"""Analisa este URL e dá uma opinião concisa sobre a sua segurança.
 
 URL: {url}
 
-Resultados dos scanners:
-- Google Safe Browsing: {"Ameaça detectada: " + str(google_result.get("threats")) if google_result.get("is_threat") else "Nenhuma ameaça detectada" if google_result.get("checked") else "Não verificado"}
-- URLScan.io: {"Scan submetido" if urlscan_result.get("scan_submitted") else "Não verificado"}
+Resultado do Google Safe Browsing:
+- {"Ameaça detectada: " + str(google_result.get("threats")) if google_result.get("is_threat") else "Nenhuma ameaça detectada" if google_result.get("checked") else "Não verificado"}
 
 Responde em Português de Portugal, de forma concisa (máximo 2-3 frases).
 Indica se o URL parece seguro, suspeito ou perigoso, e porquê.
-Se não houver dados suficientes, indica isso claramente."""
+Considera também o domínio, estrutura do URL, e padrões comuns de phishing/scam.
+Se parecer suspeito, diz claramente "suspeito" ou "cautela"."""
 
     payload = {
         "model": settings.GROQ_MODEL,
@@ -413,11 +412,17 @@ async def _perform_full_check(url: str, url_hash: str) -> dict:
         "google_safe_browsing": google_result
     }
     
-    # Determinar status baseado no resultado
+    # Determinar status baseado no resultado do Google
     status = _determine_status(google_result)
     
     # Obter opinião da IA
     ai_opinion = await get_ai_opinion(url, scan_results)
+    
+    # Se Google diz SAFE mas IA detecta suspeita → SUSPICIOUS
+    if status == URLStatus.SAFE and ai_opinion:
+        ai_lower = ai_opinion.lower()
+        if any(word in ai_lower for word in ['suspeito', 'suspicious', 'cuidado', 'cautela', 'evitar', 'perigoso', 'phishing', 'scam', 'fraude']):
+            status = URLStatus.SUSPICIOUS
     
     # Guardar em cache
     await save_to_cache(

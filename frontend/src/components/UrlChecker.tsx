@@ -121,34 +121,6 @@ export default function UrlChecker() {
                   <span style={{ color: 'var(--warning)' }}>❓ Não verificado</span>
                 )}
               </p>
-              
-              {/* URLScan.io */}
-              <p style={{ margin: '0.25rem 0' }}>
-                • URLScan.io: {' '}
-                {result.threat_details.urlscan?.checked ? (
-                  result.threat_details.urlscan.scan_submitted ? (
-                    <span style={{ color: 'var(--success)' }}>
-                      ✅ Scan submetido
-                      {result.threat_details.urlscan.result_url && (
-                        <a 
-                          href={result.threat_details.urlscan.result_url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          style={{ marginLeft: '0.5rem', color: 'var(--primary)' }}
-                        >
-                          Ver detalhes ↗
-                        </a>
-                      )}
-                    </span>
-                  ) : (
-                    <span style={{ color: 'var(--warning)' }}>⏳ Em processamento</span>
-                  )
-                ) : (
-                  <span style={{ color: 'var(--warning)' }}>
-                    {result.threat_details.urlscan?.error ? '❌ Erro' : '❓ Não verificado'}
-                  </span>
-                )}
-              </p>
             </div>
 
             {/* Info do cache */}
@@ -165,7 +137,7 @@ export default function UrlChecker() {
       )}
 
       <p style={{ color: 'var(--gray)', fontSize: '0.8rem', marginTop: '1rem', textAlign: 'center' }}>
-        🤖 Verificação com IA (Google Safe Browsing + URLScan.io + Llama 3)
+        🤖 Verificação com IA (Google Safe Browsing + Llama 3)
       </p>
     </div>
   );
