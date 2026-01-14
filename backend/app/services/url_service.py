@@ -7,12 +7,13 @@ Serviço para análise de segurança de URLs.
 Integra:
 - Supabase (cache de resultados)
 - Google Safe Browsing (verificação de ameaças)
-- URLScan.io (scan detalhado)
 - Groq/Llama 3 (análise IA)
 
 Arquitetura: Stale-While-Revalidate
 - Retorna cache imediatamente (se existir)
 - Re-verifica em background se cache antigo
+
+Capacidade: ~10,000 verificações/dia (limite Google Safe Browsing)
 """
 
 import hashlib
@@ -227,68 +228,28 @@ async def check_google_safe_browsing(url: str) -> dict:
 
 
 # ===========================================
-# URLSCAN.IO
+# URLSCAN.IO (DESATIVADO)
 # ===========================================
-
-async def check_urlscan(url: str) -> dict:
-    """
-    Verifica URL no URLScan.io API.
-    Nota: A API gratuita tem limite de 100 scans/dia.
-    
-    Returns:
-        Dict com resultado da verificação.
-    """
-    if not settings.URLSCAN_API_KEY:
-        logger.warning("⚠️ URLScan.io API key not configured")
-        return {"checked": False, "error": "API key not configured"}
-    
-    api_url = "https://urlscan.io/api/v1/scan/"
-    
-    headers = {
-        "API-Key": settings.URLSCAN_API_KEY,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "url": url,
-        "visibility": "unlisted"  # Não aparece publicamente
-    }
-    
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            # Submeter scan
-            response = await client.post(api_url, json=payload, headers=headers)
-            
-            # 429 = Rate limit exceeded
-            if response.status_code == 429:
-                logger.warning("⚠️ URLScan.io rate limit exceeded")
-                return {"checked": False, "error": "rate_limit"}
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            # URLScan retorna um UUID e demora a processar
-            # Por agora, apenas confirmamos que foi submetido
-            scan_uuid = data.get("uuid")
-            result_url = data.get("result")
-            
-            logger.info(f"✅ URLScan submitted: {scan_uuid}")
-            
-            return {
-                "checked": True,
-                "scan_submitted": True,
-                "scan_uuid": scan_uuid,
-                "result_url": result_url,
-                "source": "urlscan_io",
-                "note": "Scan in progress, results available later"
-            }
-            
-    except httpx.TimeoutException:
-        logger.error("❌ URLScan.io timeout")
-        return {"checked": False, "error": "timeout"}
-    except Exception as e:
-        logger.error(f"❌ URLScan.io error: {e}")
-        return {"checked": False, "error": str(e)}
+# Removido para aumentar capacidade de 100 → 10,000 verificações/dia
+# A API gratuita do URLScan.io tinha limite de apenas 100 scans/dia
+# Se precisares no futuro, basta descomentar esta função
+#
+# async def check_urlscan(url: str) -> dict:
+#     """Verifica URL no URLScan.io API (100 scans/dia)."""
+#     if not settings.URLSCAN_API_KEY:
+#         return {"checked": False, "error": "API key not configured"}
+#     
+#     api_url = "https://urlscan.io/api/v1/scan/"
+#     headers = {"API-Key": settings.URLSCAN_API_KEY, "Content-Type": "application/json"}
+#     payload = {"url": url, "visibility": "unlisted"}
+#     
+#     async with httpx.AsyncClient(timeout=15.0) as client:
+#         response = await client.post(api_url, json=payload, headers=headers)
+#         if response.status_code == 429:
+#             return {"checked": False, "error": "rate_limit"}
+#         response.raise_for_status()
+#         data = response.json()
+#         return {"checked": True, "scan_uuid": data.get("uuid"), "result_url": data.get("result")}
 
 
 # ===========================================
@@ -440,32 +401,20 @@ async def _perform_full_check(url: str, url_hash: str) -> dict:
     
     logger.info(f"🔄 Performing full check for {url[:50]}...")
     
-    # Executar scans em paralelo
-    google_task = check_google_safe_browsing(url)
-    urlscan_task = check_urlscan(url)
-    
-    google_result, urlscan_result = await asyncio.gather(
-        google_task,
-        urlscan_task,
-        return_exceptions=True
-    )
+    # Executar Google Safe Browsing
+    google_result = await check_google_safe_browsing(url)
     
     # Tratar exceções
     if isinstance(google_result, Exception):
         logger.error(f"Google Safe Browsing exception: {google_result}")
         google_result = {"checked": False, "error": str(google_result)}
     
-    if isinstance(urlscan_result, Exception):
-        logger.error(f"URLScan exception: {urlscan_result}")
-        urlscan_result = {"checked": False, "error": str(urlscan_result)}
-    
     scan_results = {
-        "google_safe_browsing": google_result,
-        "urlscan": urlscan_result
+        "google_safe_browsing": google_result
     }
     
-    # Determinar status baseado nos resultados
-    status = _determine_status(google_result, urlscan_result)
+    # Determinar status baseado no resultado
+    status = _determine_status(google_result)
     
     # Obter opinião da IA
     ai_opinion = await get_ai_opinion(url, scan_results)
@@ -500,19 +449,19 @@ async def _background_recheck(url: str, url_hash: str):
         logger.error(f"❌ Background recheck failed: {e}")
 
 
-def _determine_status(google_result: dict, urlscan_result: dict) -> URLStatus:
-    """Determina status final baseado nos resultados dos scanners."""
+def _determine_status(google_result: dict) -> URLStatus:
+    """Determina status final baseado no resultado do Google Safe Browsing."""
     
     # Se Google Safe Browsing detectou ameaça → MALICIOUS
     if google_result.get("is_threat"):
         return URLStatus.MALICIOUS
     
-    # Se ambos verificaram e não encontraram nada → SAFE
+    # Se verificou e não encontrou nada → SAFE
     if google_result.get("checked") and not google_result.get("is_threat"):
         return URLStatus.SAFE
     
-    # Se nenhum scanner funcionou → UNKNOWN
-    if not google_result.get("checked") and not urlscan_result.get("checked"):
+    # Se não conseguiu verificar → UNKNOWN
+    if not google_result.get("checked"):
         return URLStatus.UNKNOWN
     
     # Caso padrão
