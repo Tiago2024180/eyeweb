@@ -10,22 +10,30 @@ import CryptoJS from 'crypto-js';
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
+// Flag para verificar se Supabase está configurado
+const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+
+if (!isSupabaseConfigured) {
   console.warn('⚠️ Supabase credentials not configured. Auth features will be disabled.');
 }
 
-// Criar cliente Supabase com configuração melhorada para evitar AbortError
-export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    // Desativar o lock que causa o AbortError
-    lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
-      return await fn();
+// Criar cliente Supabase apenas se estiver configurado
+// Durante o build, usamos URLs placeholder para evitar erros
+export const supabase = createBrowserClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      // Desativar o lock que causa o AbortError
+      lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
+        return await fn();
+      },
     },
-  },
-});
+  }
+);
 
 // ===========================================
 // TIPOS
