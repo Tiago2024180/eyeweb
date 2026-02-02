@@ -437,7 +437,7 @@ export default function PerfilPage() {
               >
                 <Avatar 
                   src={profile?.avatar_url}
-                  name={profile?.display_name}
+                  name={profile?.display_name ?? undefined}
                   email={user?.email}
                   size="xl"
                 />

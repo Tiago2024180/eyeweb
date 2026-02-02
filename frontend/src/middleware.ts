@@ -1,7 +1,6 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createHash } from 'crypto';
 
 // Rotas que requerem autenticação
 const protectedRoutes = ['/perfil', '/admin'];
@@ -9,11 +8,19 @@ const protectedRoutes = ['/perfil', '/admin'];
 // Rotas que requerem ser admin
 const adminRoutes = ['/admin'];
 
+// Função para criar hash SHA-256 usando Web Crypto API (compatível com Edge Runtime)
+async function sha256(message: string): Promise<string> {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 // Função para verificar se é admin via hash (não expor email no código)
-function isAdminEmail(email: string): boolean {
+async function isAdminEmail(email: string): Promise<boolean> {
   const adminEmailHash = process.env.NEXT_PUBLIC_ADMIN_EMAIL_HASH || '';
   if (!adminEmailHash) return false;
-  const emailHash = createHash('sha256').update(email.toLowerCase()).digest('hex');
+  const emailHash = await sha256(email.toLowerCase());
   return emailHash === adminEmailHash;
 }
 
@@ -68,7 +75,7 @@ export async function middleware(req: NextRequest) {
 
   // Se está autenticado mas tenta aceder a rota de admin sem ser admin
   if (isAdminRoute && user) {
-    const isAdmin = user.email ? isAdminEmail(user.email) : false;
+    const isAdmin = user.email ? await isAdminEmail(user.email) : false;
     
     if (!isAdmin) {
       // Redirecionar para perfil com mensagem
