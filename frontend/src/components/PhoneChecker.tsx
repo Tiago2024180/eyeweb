@@ -375,10 +375,6 @@ export default function PhoneChecker() {
           type="phone"
         />
       )}
-
-      <p style={{ color: 'var(--gray)', fontSize: '0.8rem', marginTop: '1rem', textAlign: 'center' }}>
-        🔒 A tua privacidade está protegida com K-Anonymity
-      </p>
     </div>
   );
 }

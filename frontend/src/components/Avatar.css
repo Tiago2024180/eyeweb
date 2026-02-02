@@ -1,0 +1,129 @@
+/* ==========================================
+   AVATAR COMPONENT STYLES
+   ========================================== */
+
+/* Base Avatar */
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  position: relative;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+/* Avatar Sizes */
+.avatar-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 0.75rem;
+}
+
+.avatar-md {
+  width: 48px;
+  height: 48px;
+  font-size: 1rem;
+}
+
+.avatar-lg {
+  width: 64px;
+  height: 64px;
+  font-size: 1.25rem;
+}
+
+.avatar-xl {
+  width: 96px;
+  height: 96px;
+  font-size: 1.75rem;
+  border: 3px solid var(--accent-primary);
+}
+
+/* Avatar Image */
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Avatar Initials */
+.avatar-initials {
+  color: white;
+  font-weight: 600;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+/* Clickable Avatar */
+.avatar-clickable {
+  cursor: pointer;
+}
+
+.avatar-clickable:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Upload Overlay */
+.avatar-upload-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 1.5rem;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Profile Avatar Section */
+.profile-avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.avatar-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.avatar-actions .btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.btn-danger-outline {
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+}
+
+.btn-danger-outline:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1) !important;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .profile-avatar-section {
+    margin-bottom: 1rem;
+  }
+  
+  .avatar-actions .btn span {
+    display: none;
+  }
+  
+  .avatar-actions .btn {
+    padding: 0.5rem;
+  }
+}

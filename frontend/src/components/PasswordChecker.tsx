@@ -174,10 +174,7 @@ export default function PasswordChecker() {
             A verificar...
           </>
         ) : (
-          <>
-            <i className="fa-solid fa-shield-halved" style={{ marginRight: '0.5rem' }}></i>
-            Check
-          </>
+          'Verificar Password'
         )}
       </button>
 
@@ -322,10 +319,6 @@ export default function PasswordChecker() {
           )}
         </div>
       )}
-
-      <p style={{ color: 'var(--gray)', fontSize: '0.8rem', marginTop: '1.5rem', textAlign: 'center' }}>
-        🔐 A password nunca sai do teu dispositivo - apenas o hash é verificado com K-Anonymity
-      </p>
     </div>
   );
 }

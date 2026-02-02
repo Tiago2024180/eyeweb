@@ -49,3 +49,11 @@ groq>=0.4.0
 
 # --- Async HTTP ---
 # aiohttp já está incluído acima
+
+# ===========================================
+# ADMIN MFA — Autenticação de dois fatores
+# ===========================================
+
+# --- TOTP (Time-based One-Time Password) ---
+pyotp>=2.9.0
+aiosmtplib>=3.0.0

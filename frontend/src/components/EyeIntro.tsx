@@ -6,10 +6,35 @@ interface EyeIntroProps {
   onComplete: () => void;
 }
 
+const SESSION_KEY = 'eyeweb_intro_seen';
+
+// Função para verificar se já foi visto (fora do componente para evitar re-renders)
+function checkIfSeen(): boolean {
+  if (typeof window !== 'undefined') {
+    return sessionStorage.getItem(SESSION_KEY) === 'true';
+  }
+  return false;
+}
+
 export default function EyeIntro({ onComplete }: EyeIntroProps) {
+  // Inicializar como true para evitar flash - o useEffect vai definir o valor correto
+  const [isReady, setIsReady] = useState(false);
+  const [alreadySeen, setAlreadySeen] = useState(true); // Começa como true para evitar flash
   const [clicked, setClicked] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(true); // Começa escondido
   const [pupilStyle, setPupilStyle] = useState({ transform: 'translate(-50%, -50%)' });
+
+  // Verificar se já foi visto nesta sessão - apenas no cliente
+  useEffect(() => {
+    const seen = checkIfSeen();
+    setAlreadySeen(seen);
+    setHidden(seen);
+    setIsReady(true);
+    
+    if (seen) {
+      onComplete();
+    }
+  }, [onComplete]);
 
   // Seguir o cursor com a pupila
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -43,12 +68,22 @@ export default function EyeIntro({ onComplete }: EyeIntroProps) {
   const handleClick = () => {
     setClicked(true);
     
+    // Guardar em sessionStorage que já foi visto
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(SESSION_KEY, 'true');
+    }
+    
     // Após a animação, esconder e chamar onComplete
     setTimeout(() => {
       setHidden(true);
       onComplete();
     }, 1500);
   };
+
+  // Se já foi visto ou ainda não está pronto, não renderizar nada
+  if (!isReady || alreadySeen) {
+    return null;
+  }
 
   return (
     <div className={`eye-screen ${hidden ? 'hidden' : ''}`}>

@@ -1,5 +1,5 @@
 import Navbar from '@/components/Navbar';
-import Link from 'next/link';
+import Footer from '@/components/Footer';
 
 export default function AboutPage() {
   return (
@@ -20,7 +20,7 @@ export default function AboutPage() {
         </nav>
 
         <section id="mission" className="about-section">
-          <h2>🎯 Missão</h2>
+          <h2>Missão</h2>
           <p>
             O Eye Web tem como missão fornecer uma ferramenta gratuita e acessível para que 
             qualquer pessoa possa verificar se os seus dados pessoais foram comprometidos em 
@@ -33,7 +33,7 @@ export default function AboutPage() {
         </section>
 
         <section id="vision" className="about-section">
-          <h2>👁️ Visão</h2>
+          <h2>Visão</h2>
           <p>
             Ambicionamos ser a referência em Portugal para verificação de fugas de dados, 
             educando os utilizadores sobre a importância da cibersegurança e oferecendo 
@@ -46,7 +46,7 @@ export default function AboutPage() {
         </section>
 
         <section id="team" className="about-section">
-          <h2>👥 Equipa</h2>
+          <h2>Equipa</h2>
           <p>O Eye Web foi desenvolvido como Prova de Aptidão Profissional (PAP) por:</p>
           <ul className="team-list">
             <li>
@@ -61,7 +61,7 @@ export default function AboutPage() {
         </section>
 
         <section id="privacy" className="about-section">
-          <h2>🔐 Como Protegemos a Tua Privacidade</h2>
+          <h2>Como Protegemos a Tua Privacidade</h2>
           <p>
             O Eye Web utiliza o modelo de <strong>K-Anonymity</strong> para garantir que os 
             teus dados sensíveis nunca são transmitidos para os nossos servidores.
@@ -82,27 +82,10 @@ export default function AboutPage() {
               <li>A comparação final é feita <strong>localmente</strong> no teu dispositivo</li>
             </ol>
           </div>
-
-          <p style={{ marginTop: '1rem', color: 'var(--success)' }}>
-            ✅ Resultado: O servidor nunca sabe qual email específico estás a verificar!
-          </p>
         </section>
-
-        <div style={{ textAlign: 'center', marginTop: '2rem' }}>
-          <Link href="/" className="btn" style={{ 
-            display: 'inline-block', 
-            maxWidth: '200px',
-            textDecoration: 'none'
-          }}>
-            Voltar ao Início
-          </Link>
-        </div>
       </div>
 
-      <footer className="footer">
-        <p>Eye Web © 2025 - Projeto PAP</p>
-        <p>Privacidade garantida com K-Anonymity</p>
-      </footer>
+      <Footer />
     </>
   );
 }

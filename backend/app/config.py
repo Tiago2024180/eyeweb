@@ -141,6 +141,23 @@ class Settings(BaseSettings):
     URL_CACHE_FRESH_SECONDS: int = 2592000
     
     # ===========================================
+    # ADMIN MFA
+    # ===========================================
+    
+    # Hash SHA-256 do email admin (para não expor email no código)
+    ADMIN_EMAIL_HASH: str = ""
+    
+    # Secret TOTP para MFA (gerado com pyotp.random_base32())
+    MFA_SECRET: str = ""
+    
+    # ===========================================
+    # RESEND (Email Service)
+    # ===========================================
+    
+    # API Key do Resend para envio de emails
+    RESEND_API_KEY: str = ""
+    
+    # ===========================================
     # CONFIGURAÇÃO DO PYDANTIC
     # ===========================================
     

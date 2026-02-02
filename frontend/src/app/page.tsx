@@ -7,6 +7,7 @@ import Tabs from '@/components/Tabs';
 import DataChecker from '@/components/DataChecker';
 import UrlChecker from '@/components/UrlChecker';
 import PasswordChecker from '@/components/PasswordChecker';
+import Footer from '@/components/Footer';
 
 const TABS = [
   { id: 'data', label: 'Dados Pessoais', icon: 'fa-solid fa-user-shield' },
@@ -34,7 +35,6 @@ export default function Home() {
         <div className="container">
           <header className="header">
             <h1>Eye Web</h1>
-            <p className="tagline">Verifica se os teus dados foram expostos em fugas de dados</p>
           </header>
 
           <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} />
@@ -58,12 +58,9 @@ export default function Home() {
             </section>
           )}
         </div>
-
-        <footer className="footer">
-          <p>Eye Web © 2026 - Projeto PAP</p>
-          <p>Privacidade garantida com K-Anonymity</p>
-        </footer>
       </div>
+
+      <Footer />
     </>
   );
 }

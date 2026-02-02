@@ -25,6 +25,7 @@ from .models import HealthResponse, ErrorResponse
 from .routers import breach_router
 from .routers.password_router import router as password_router
 from .routers.url_router import router as url_router
+from .routers.auth_router import router as auth_router
 from .services.breach_service import get_breach_service
 
 # ===========================================
@@ -157,6 +158,12 @@ app.include_router(
 # Router de URL Checker (novo!)
 app.include_router(
     url_router,
+    prefix=settings.API_PREFIX
+)
+
+# Router de Autenticação (verificação com código)
+app.include_router(
+    auth_router,
     prefix=settings.API_PREFIX
 )
 

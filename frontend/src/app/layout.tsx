@@ -1,5 +1,8 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import './login/login.css'
+import './perfil/perfil.css'
+import { AuthProvider } from '@/contexts/AuthContext'
 
 export const metadata: Metadata = {
   title: 'Eye Web - Breach Checker',
@@ -19,8 +22,21 @@ export default function RootLayout({
           rel="stylesheet" 
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" 
         />
+        {/* Pré-carregar script do Cloudflare Turnstile para reduzir tempo de loading */}
+        <link 
+          rel="preconnect" 
+          href="https://challenges.cloudflare.com" 
+        />
+        <link 
+          rel="dns-prefetch" 
+          href="https://challenges.cloudflare.com" 
+        />
       </head>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   )
 }
