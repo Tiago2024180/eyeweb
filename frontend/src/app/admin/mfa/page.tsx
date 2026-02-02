@@ -432,6 +432,25 @@ export default function AdminMFAPage() {
           </button>
         </div>
 
+        {/* Reset de emergência - clicar 5x no título quando bloqueado */}
+        {isBanned && (
+          <div 
+            className="mfa-emergency-reset"
+            onClick={() => {
+              const clicks = parseInt(sessionStorage.getItem('emergency_clicks') || '0') + 1;
+              sessionStorage.setItem('emergency_clicks', clicks.toString());
+              if (clicks >= 5) {
+                localStorage.removeItem('admin_mfa_ban');
+                localStorage.removeItem('admin_mfa_strikes');
+                sessionStorage.removeItem('emergency_clicks');
+                window.location.reload();
+              }
+            }}
+            title="Reset de emergência"
+          >
+            <span style={{ opacity: 0.2, fontSize: '0.7rem', cursor: 'pointer' }}>⚙️</span>
+          </div>
+        )}
 
       </div>
     </div>
