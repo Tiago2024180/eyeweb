@@ -7,6 +7,9 @@
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 
+# --- Validação de Email ---
+email-validator>=2.0.0
+
 # --- Manipulação de Dados ---
 pandas>=2.0.0
 pyarrow>=14.0.0
