@@ -77,7 +77,7 @@ export default function Navbar({ showLogin = true }: NavbarProps) {
                 >
                   <Avatar 
                     src={avatarUrl}
-                    name={profile?.display_name}
+                    name={profile?.display_name ?? undefined}
                     email={user?.email}
                     size="sm"
                   />
