@@ -8,6 +8,9 @@ const protectedRoutes = ['/perfil', '/admin'];
 // Rotas que requerem ser admin
 const adminRoutes = ['/admin'];
 
+// Rotas públicas dentro de admin (não requerem autenticação prévia)
+const publicAdminRoutes = ['/admin/mfa'];
+
 // Verificar se Supabase está configurado
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -71,6 +74,14 @@ export async function middleware(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = req.nextUrl.pathname;
+
+  // Verificar se é uma rota pública de admin (como MFA)
+  const isPublicAdminRoute = publicAdminRoutes.some(route => pathname.startsWith(route));
+  
+  // Permitir acesso a rotas públicas de admin sem autenticação
+  if (isPublicAdminRoute) {
+    return res;
+  }
 
   // Verificar se é uma rota protegida
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));

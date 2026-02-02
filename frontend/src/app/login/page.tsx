@@ -267,7 +267,25 @@ function LoginContent() {
       // Credenciais válidas - fazer logout do cliente temporário
       await tempClient.auth.signOut();
       
-      // Agora enviar código OTP via email
+      // Debug: verificar se é admin
+      console.log('Email:', email);
+      console.log('isAdminLogin state:', isAdminLogin);
+      console.log('isAdminEmail(email):', isAdminEmail(email));
+      
+      // Se é admin, redirecionar para MFA em vez de enviar OTP por email
+      // Usar verificação direta em vez do state (mais fiável)
+      const isAdmin = isAdminEmail(email);
+      if (isAdmin) {
+        console.log('Admin detectado! A redirecionar para MFA...');
+        // Guardar email no sessionStorage para a página MFA
+        sessionStorage.setItem('admin_pending_email', email);
+        sessionStorage.setItem('admin_pending_password', password);
+        // Usar window.location para redirecionamento mais fiável
+        window.location.href = '/admin/mfa';
+        return;
+      }
+      
+      // Utilizador normal - enviar código OTP via email
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email,
         options: {

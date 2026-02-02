@@ -1,16 +1,31 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import '../login/login.css';
+import { supabase } from '@/lib/supabase';
+import './admin.css';
+
+// Tipos para as secções
+type AdminSection = 'menu' | 'emails' | 'health' | 'traffic' | 'chat';
 
 export default function AdminDashboardPage() {
+  console.log('🔴 Admin Page Component Mounted');
   const router = useRouter();
-  const { user, profile, isAuthenticated, isAdmin, loading, logout } = useAuth();
+  const { user, profile, isAuthenticated, isAdmin, loading, logout, refreshProfile } = useAuth();
   const [mfaVerified, setMfaVerified] = useState(false);
   const [checkingMfa, setCheckingMfa] = useState(true);
+  const [currentSection, setCurrentSection] = useState<AdminSection>('menu');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [nameSuccess, setNameSuccess] = useState(false);
+  const [profileTimeout, setProfileTimeout] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // Verificar MFA
   useEffect(() => {
@@ -18,7 +33,6 @@ export default function AdminDashboardPage() {
       const verified = sessionStorage.getItem('mfa_verified') === 'true';
       const verifiedAt = sessionStorage.getItem('mfa_verified_at');
       
-      // Verificar se o MFA ainda é válido (expira após 1 hora)
       if (verified && verifiedAt) {
         const expiryTime = 60 * 60 * 1000; // 1 hora
         const isExpired = Date.now() - parseInt(verifiedAt) > expiryTime;
@@ -26,7 +40,6 @@ export default function AdminDashboardPage() {
         if (!isExpired) {
           setMfaVerified(true);
         } else {
-          // MFA expirado, limpar
           sessionStorage.removeItem('mfa_verified');
           sessionStorage.removeItem('mfa_verified_at');
         }
@@ -36,223 +49,634 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  // Redirecionar se não autenticado, não admin, ou MFA não verificado
+  // Timeout para profile - não ficar preso para sempre
   useEffect(() => {
-    if (!loading && !checkingMfa) {
-      if (!isAuthenticated) {
-        router.push('/login');
-        return;
-      }
+    if (!loading && !profile && isAuthenticated) {
+      const timer = setTimeout(() => {
+        setProfileTimeout(true);
+      }, 5000); // 5 segundos
       
-      if (!isAdmin && profile) {
-        router.push('/perfil');
-        return;
-      }
-      
-      if (!mfaVerified) {
-        router.push('/admin/mfa');
-        return;
-      }
+      return () => clearTimeout(timer);
     }
-  }, [isAuthenticated, isAdmin, profile, loading, checkingMfa, mfaVerified, router]);
+  }, [loading, profile, isAuthenticated]);
+
+  // Fechar dropdown ao clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+        if (isEditingName) {
+          setIsEditingName(false);
+          setEditedName('');
+          setNameError('');
+          setNameSuccess(false);
+        }
+      }
+    };
+
+    if (profileOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [profileOpen, isEditingName]);
+
+  // Redirecionar se não autenticado ou não admin
+  useEffect(() => {
+    // Esperar que loading termine
+    if (loading || checkingMfa) return;
+    
+    // Se não autenticado, ir para login
+    if (!isAuthenticated) {
+      window.location.href = '/login';
+      return;
+    }
+    
+    // Se profile ainda não carregou, esperar
+    if (!profile) return;
+    
+    // Se não é admin, ir para perfil
+    if (!isAdmin) {
+      window.location.href = '/perfil';
+      return;
+    }
+    
+    // Se MFA não verificado, ir para MFA
+    if (!mfaVerified) {
+      window.location.href = '/admin/mfa';
+      return;
+    }
+  }, [isAuthenticated, isAdmin, profile, loading, checkingMfa, mfaVerified]);
 
   const handleLogout = async () => {
-    // Limpar MFA
     sessionStorage.removeItem('mfa_verified');
     sessionStorage.removeItem('mfa_verified_at');
-    
     await logout();
     router.push('/login');
   };
 
+  // Upload de avatar
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validações
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor seleciona uma imagem válida');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('A imagem deve ter no máximo 2MB');
+      return;
+    }
+
+    setIsUploading(true);
+    console.log('📸 Iniciando upload de avatar...');
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `${fileName}`; // Sem subpasta
+
+      // Upload para Supabase Storage
+      const { error: uploadError, data: uploadData } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('❌ Upload error:', uploadError);
+        alert('Erro ao fazer upload: ' + uploadError.message);
+        setIsUploading(false);
+        return;
+      }
+
+      console.log('✅ Upload concluído:', uploadData);
+
+      // Obter URL pública
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      console.log('🔗 URL pública:', publicUrl);
+
+      // Atualizar perfil na base de dados
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: publicUrl })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('❌ Profile update error:', updateError);
+        alert('Erro ao atualizar perfil: ' + updateError.message);
+        setIsUploading(false);
+        return;
+      }
+
+      console.log('✅ Perfil atualizado na BD');
+
+      // Atualizar contexto
+      await refreshProfile();
+      console.log('✅ Contexto atualizado');
+      
+    } catch (err: any) {
+      console.error('❌ Avatar upload error:', err);
+      alert('Erro ao processar imagem: ' + err.message);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Remover avatar
+  const handleRemoveAvatar = async () => {
+    if (!user || !profile?.avatar_url) return;
+
+    setIsUploading(true);
+
+    try {
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ avatar_url: null })
+        .eq('id', user.id);
+
+      if (updateError) {
+        console.error('Remove avatar error:', updateError);
+        alert('Erro ao remover foto');
+        return;
+      }
+
+      await refreshProfile();
+    } catch (err: any) {
+      console.error('Remove avatar error:', err);
+      alert('Erro ao remover foto');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Iniciar edição do nome
+  const handleStartEditName = () => {
+    setEditedName(profile?.display_name || user?.email?.split('@')[0] || '');
+    setIsEditingName(true);
+    setNameError('');
+    setNameSuccess(false);
+    setTimeout(() => nameInputRef.current?.focus(), 100);
+  };
+
+  // Validar nome em tempo real
+  const validateName = (name: string): string => {
+    // Apenas letras, espaços e acentos permitidos
+    const validPattern = /^[a-zA-ZÀ-ÿ\s]+$/;
+    
+    if (!name.trim()) {
+      return 'O nome não pode estar vazio';
+    }
+    if (name.trim().length < 2) {
+      return 'Mínimo 2 caracteres';
+    }
+    if (name.trim().length > 30) {
+      return 'Máximo 30 caracteres';
+    }
+    if (/\d/.test(name)) {
+      return 'Números não são permitidos';
+    }
+    if (/[-_]+/.test(name)) {
+      return 'Hífens e underscores não são permitidos';
+    }
+    if (!validPattern.test(name.trim())) {
+      return 'Apenas letras e espaços são permitidos';
+    }
+    if (/\s{2,}/.test(name)) {
+      return 'Evita espaços duplos';
+    }
+    return '';
+  };
+
+  // Atualizar nome com validação em tempo real
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    // Limitar a 30 caracteres
+    if (value.length <= 30) {
+      setEditedName(value);
+      const error = validateName(value);
+      setNameError(error);
+      setNameSuccess(false);
+    }
+  };
+
+  // Guardar nome
+  const handleSaveName = async () => {
+    const trimmedName = editedName.trim();
+    const error = validateName(trimmedName);
+    
+    if (error) {
+      setNameError(error);
+      return;
+    }
+
+    if (!user) {
+      handleCancelEditName();
+      return;
+    }
+
+    try {
+      const { error: dbError } = await supabase
+        .from('profiles')
+        .update({ display_name: trimmedName })
+        .eq('id', user.id);
+
+      if (dbError) {
+        console.error('Error updating name:', dbError);
+        setNameError('Erro ao guardar. Tenta novamente.');
+        return;
+      }
+
+      await refreshProfile();
+      setNameSuccess(true);
+      setNameError('');
+      
+      // Fechar após 1.5s de sucesso
+      setTimeout(() => {
+        setIsEditingName(false);
+        setNameSuccess(false);
+      }, 1500);
+    } catch (err) {
+      console.error('Error:', err);
+      setNameError('Erro ao guardar. Tenta novamente.');
+    }
+  };
+
+  // Cancelar edição
+  const handleCancelEditName = () => {
+    setIsEditingName(false);
+    setEditedName('');
+    setNameError('');
+    setNameSuccess(false);
+  };
+
+  // Cancelar edição com Escape
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleSaveName();
+    } else if (e.key === 'Escape') {
+      handleCancelEditName();
+    }
+  };
+
+  // Loading state - mostrar loading enquanto verifica auth e MFA
   if (loading || checkingMfa) {
     return (
-      <div className="auth-container">
-        <div className="auth-loading">
-          <div className="spinner"></div>
-          <p>A carregar...</p>
-        </div>
+      <div className="admin-loading">
+        <div className="spinner"></div>
+        <p>A carregar...</p>
       </div>
     );
   }
 
-  if (!mfaVerified) {
-    return null; // Será redirecionado pelo useEffect
+  // Se não autenticado, não mostrar nada (vai redirecionar)
+  if (!isAuthenticated) {
+    return null;
   }
 
+  // Se profile ainda não carregou, mostrar loading
+  if (!profile) {
+    if (profileTimeout) {
+      // Timeout - tentar recarregar ou ir para login
+      return (
+        <div className="admin-loading">
+          <div className="spinner"></div>
+          <p>Erro ao carregar perfil. <a href="/login" style={{ color: '#ef4444' }}>Fazer login novamente</a></p>
+        </div>
+      );
+    }
+    return (
+      <div className="admin-loading">
+        <div className="spinner"></div>
+        <p>A carregar perfil...</p>
+      </div>
+    );
+  }
+
+  // Se não é admin, não mostrar nada (vai redirecionar)
+  if (!isAdmin) {
+    return null;
+  }
+
+  // Se MFA não verificado, não mostrar nada (vai redirecionar)
+  if (!mfaVerified) {
+    return null;
+  }
+
+  // Renderizar secção actual
+  const renderSection = () => {
+    switch (currentSection) {
+      case 'emails':
+        return <EmailsSection onBack={() => setCurrentSection('menu')} />;
+      case 'health':
+        return <HealthSection onBack={() => setCurrentSection('menu')} />;
+      case 'traffic':
+        return <TrafficSection onBack={() => setCurrentSection('menu')} />;
+      case 'chat':
+        return <ChatSection onBack={() => setCurrentSection('menu')} />;
+      default:
+        return <MainMenu onNavigate={setCurrentSection} />;
+    }
+  };
+
   return (
-    <div className="admin-container">
-      <div className="admin-header">
-        <div className="admin-logo">
-          <Link href="/">
-            <i className="fa-solid fa-eye"></i>
-            <span>Eye Web</span>
-          </Link>
-          <span className="admin-badge">Admin</span>
+    <div className="admin-page">
+      {/* Navbar */}
+      <nav className="admin-navbar">
+        <div className="admin-navbar-brand">
+          <span>Eye Web</span>
         </div>
-        <div className="admin-user">
-          <span>{user?.email}</span>
-          <button onClick={handleLogout} className="btn btn-small">
-            <i className="fa-solid fa-right-from-bracket"></i>
-            Sair
-          </button>
+        
+        <div className="admin-navbar-user">
+          <div 
+            ref={dropdownRef}
+            className={`admin-profile-container ${profileOpen ? 'open' : ''}`}
+          >
+            <button 
+              className="admin-profile-btn"
+              onClick={() => setProfileOpen(!profileOpen)}
+            >
+              <div className="admin-profile-avatar">
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} alt="Avatar" />
+                ) : (
+                  <i className="fa-solid fa-user"></i>
+                )}
+              </div>
+              <div className="admin-profile-info">
+                <span className="admin-profile-name">
+                  {profile?.display_name || user?.email?.split('@')[0] || 'Admin'}
+                </span>
+                <span className="admin-profile-role">Administrador</span>
+              </div>
+            </button>
+            
+            <div className="admin-profile-dropdown">
+              {/* Header do Perfil - igual ao user */}
+              <div className="admin-dropdown-profile-header">
+                <div className={`admin-dropdown-avatar-wrapper ${isUploading ? 'uploading' : ''}`}>
+                  <div className="admin-dropdown-avatar-large">
+                    {profile?.avatar_url ? (
+                      <img src={profile.avatar_url} alt="Avatar" />
+                    ) : (
+                      <i className="fa-solid fa-user"></i>
+                    )}
+                  </div>
+                  {/* Botão de editar foto - aparece no hover */}
+                  {!isUploading && (
+                    <div className="admin-avatar-actions">
+                      <label className="admin-avatar-edit-btn" title="Alterar foto">
+                        <i className="fa-solid fa-pencil"></i>
+                        <input 
+                          ref={fileInputRef}
+                          type="file" 
+                          accept="image/*" 
+                          onChange={handleAvatarUpload}
+                          style={{ display: 'none' }} 
+                        />
+                      </label>
+                      {profile?.avatar_url && (
+                        <button 
+                          className="admin-avatar-delete-btn" 
+                          onClick={handleRemoveAvatar}
+                          title="Remover foto"
+                        >
+                          <i className="fa-solid fa-trash"></i>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {isUploading && (
+                    <div className="admin-avatar-loading">
+                      <div className="spinner-small"></div>
+                    </div>
+                  )}
+                </div>
+                <div className="admin-dropdown-profile-info">
+                  <div className="admin-dropdown-name-wrapper">
+                    {isEditingName ? (
+                      <div className="admin-name-edit-container">
+                        <div className="admin-name-input-wrapper">
+                          <input
+                            ref={nameInputRef}
+                            type="text"
+                            className={`admin-name-input ${nameError ? 'error' : ''} ${nameSuccess ? 'success' : ''}`}
+                            value={editedName}
+                            onChange={handleNameChange}
+                            onKeyDown={handleNameKeyDown}
+                            maxLength={30}
+                            placeholder="Escreve o teu nome..."
+                          />
+                          <span className="admin-name-counter">{editedName.length}/30</span>
+                        </div>
+                        {nameError && (
+                          <span className="admin-name-feedback error">
+                            <i className="fa-solid fa-circle-exclamation"></i>
+                            {nameError}
+                          </span>
+                        )}
+                        {nameSuccess && (
+                          <span className="admin-name-feedback success">
+                            <i className="fa-solid fa-circle-check"></i>
+                            Nome guardado!
+                          </span>
+                        )}
+                        {!nameSuccess && (
+                          <div className="admin-name-edit-actions">
+                            <button 
+                              className="admin-name-save-btn"
+                              onClick={handleSaveName}
+                              title="Guardar"
+                              disabled={!!nameError || !editedName.trim()}
+                            >
+                              <i className="fa-solid fa-check"></i>
+                            </button>
+                            <button 
+                              className="admin-name-cancel-btn"
+                              onClick={handleCancelEditName}
+                              title="Cancelar"
+                            >
+                              <i className="fa-solid fa-xmark"></i>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <span className="admin-dropdown-profile-name">
+                          {profile?.display_name || user?.email?.split('@')[0] || 'Admin'}
+                        </span>
+                        <button 
+                          className="admin-name-edit-btn"
+                          onClick={handleStartEditName}
+                          title="Editar nome"
+                        >
+                          <i className="fa-solid fa-pencil"></i>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <span className="admin-dropdown-profile-email">
+                    {user?.email}
+                  </span>
+                </div>
+              </div>
+              
+              {/* Botão Terminar Sessão - largura total como no perfil */}
+              <div className="admin-dropdown-actions">
+                <button 
+                  className="admin-logout-btn"
+                  onClick={handleLogout}
+                >
+                  <i className="fa-solid fa-right-from-bracket"></i>
+                  Terminar sessão
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
+      </nav>
+
+      {/* Conteúdo */}
+      <main className="admin-main">
+        {renderSection()}
+      </main>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MENU PRINCIPAL
+// ═══════════════════════════════════════════════════════════════
+
+interface MainMenuProps {
+  onNavigate: (section: AdminSection) => void;
+}
+
+function MainMenu({ onNavigate }: MainMenuProps) {
+  return (
+    <>
+      {/* Título */}
+      <div className="admin-title">
+        <h1>Eye Web</h1>
+        <p className="typing-text">Let's keep an eye on each other</p>
       </div>
 
-      <div className="admin-content">
-        <h1>Painel de Administração</h1>
-        <p>Bem-vindo ao painel de administração do Eye Web.</p>
-
-        <div className="admin-cards">
-          <div className="admin-card">
-            <i className="fa-solid fa-users"></i>
-            <h3>Utilizadores</h3>
-            <p>Gerir contas de utilizadores</p>
+      {/* Cards */}
+      <div className="admin-cards-grid">
+        <div 
+          className="admin-card card-emails" 
+          onClick={() => onNavigate('emails')}
+        >
+          <div className="admin-card-icon">
+            <i className="fa-solid fa-envelope"></i>
           </div>
-          
-          <div className="admin-card">
+          <h3>Gestor Emails</h3>
+        </div>
+
+        <div 
+          className="admin-card card-health" 
+          onClick={() => onNavigate('health')}
+        >
+          <div className="admin-card-icon">
+            <i className="fa-solid fa-heart-pulse"></i>
+          </div>
+          <h3>Monitor Saúde</h3>
+        </div>
+
+        <div 
+          className="admin-card card-traffic" 
+          onClick={() => onNavigate('traffic')}
+        >
+          <div className="admin-card-icon">
             <i className="fa-solid fa-shield-halved"></i>
-            <h3>Segurança</h3>
-            <p>Monitorizar atividade suspeita</p>
           </div>
-          
-          <div className="admin-card">
-            <i className="fa-solid fa-database"></i>
-            <h3>Base de Dados</h3>
-            <p>Estatísticas e gestão</p>
+          <h3>Monitor Tráfego</h3>
+        </div>
+
+        <div 
+          className="admin-card card-chat" 
+          onClick={() => onNavigate('chat')}
+        >
+          <div className="admin-card-icon">
+            <i className="fa-solid fa-comments"></i>
           </div>
-          
-          <div className="admin-card">
-            <i className="fa-solid fa-gear"></i>
-            <h3>Definições</h3>
-            <p>Configurações do sistema</p>
-          </div>
+          <h3>Chat</h3>
         </div>
       </div>
+    </>
+  );
+}
 
-      <style jsx>{`
-        .admin-container {
-          min-height: 100vh;
-          background: var(--bg-primary);
-        }
-        
-        .admin-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 1rem 2rem;
-          background: var(--bg-secondary);
-          border-bottom: 1px solid var(--border-color);
-        }
-        
-        .admin-logo {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-        }
-        
-        .admin-logo a {
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          color: var(--text-primary);
-          text-decoration: none;
-          font-size: 1.25rem;
-          font-weight: bold;
-        }
-        
-        .admin-logo i {
-          color: var(--accent-primary);
-        }
-        
-        .admin-badge {
-          background: var(--accent-primary);
-          color: white;
-          padding: 0.25rem 0.75rem;
-          border-radius: 20px;
-          font-size: 0.75rem;
-          font-weight: 600;
-          text-transform: uppercase;
-        }
-        
-        .admin-user {
-          display: flex;
-          align-items: center;
-          gap: 1rem;
-          color: var(--text-secondary);
-        }
-        
-        .admin-content {
-          padding: 2rem;
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-        
-        .admin-content h1 {
-          margin-bottom: 0.5rem;
-          color: var(--text-primary);
-        }
-        
-        .admin-content > p {
-          color: var(--text-secondary);
-          margin-bottom: 2rem;
-        }
-        
-        .admin-cards {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 1.5rem;
-        }
-        
-        .admin-card {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border-color);
-          border-radius: 12px;
-          padding: 1.5rem;
-          transition: transform 0.2s, box-shadow 0.2s;
-          cursor: pointer;
-        }
-        
-        .admin-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-        }
-        
-        .admin-card i {
-          font-size: 2rem;
-          color: var(--accent-primary);
-          margin-bottom: 1rem;
-        }
-        
-        .admin-card h3 {
-          color: var(--text-primary);
-          margin-bottom: 0.5rem;
-        }
-        
-        .admin-card p {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-        }
-        
-        .btn-small {
-          padding: 0.5rem 1rem;
-          font-size: 0.875rem;
-          background: transparent;
-          border: 1px solid var(--border-color);
-          border-radius: 6px;
-          color: var(--text-primary);
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          transition: all 0.2s;
-        }
-        
-        .btn-small:hover {
-          background: var(--bg-tertiary);
-          border-color: var(--accent-primary);
-        }
-      `}</style>
+// ═══════════════════════════════════════════════════════════════
+// SECÇÕES (Placeholder - serão implementadas depois)
+// ═══════════════════════════════════════════════════════════════
+
+interface SectionProps {
+  onBack: () => void;
+}
+
+function EmailsSection({ onBack }: SectionProps) {
+  return (
+    <div className="admin-section">
+      <button onClick={onBack} className="admin-back-btn">
+        <i className="fa-solid fa-arrow-left"></i>
+        Voltar
+      </button>
+      <h2>📧 Gestor de Emails</h2>
+      <p>Em desenvolvimento...</p>
+    </div>
+  );
+}
+
+function HealthSection({ onBack }: SectionProps) {
+  return (
+    <div className="admin-section">
+      <button onClick={onBack} className="admin-back-btn">
+        <i className="fa-solid fa-arrow-left"></i>
+        Voltar
+      </button>
+      <h2>🏥 Monitor de Saúde</h2>
+      <p>Em desenvolvimento...</p>
+    </div>
+  );
+}
+
+function TrafficSection({ onBack }: SectionProps) {
+  return (
+    <div className="admin-section">
+      <button onClick={onBack} className="admin-back-btn">
+        <i className="fa-solid fa-arrow-left"></i>
+        Voltar
+      </button>
+      <h2>🛡️ Monitor de Tráfego</h2>
+      <p>Em desenvolvimento...</p>
+    </div>
+  );
+}
+
+function ChatSection({ onBack }: SectionProps) {
+  return (
+    <div className="admin-section">
+      <button onClick={onBack} className="admin-back-btn">
+        <i className="fa-solid fa-arrow-left"></i>
+        Voltar
+      </button>
+      <h2>💬 Chat</h2>
+      <p>Em desenvolvimento...</p>
     </div>
   );
 }
