@@ -388,7 +388,7 @@ export default function AdminDashboardPage() {
       case 'chat':
         return <ChatSection onBack={() => setCurrentSection('menu')} />;
       default:
-        return <MainMenu onNavigate={setCurrentSection} />;
+        return <MainMenu onNavigate={setCurrentSection} onRouteNavigate={(path) => router.push(path)} />;
     }
   };
 
@@ -564,9 +564,10 @@ export default function AdminDashboardPage() {
 
 interface MainMenuProps {
   onNavigate: (section: AdminSection) => void;
+  onRouteNavigate: (path: string) => void;
 }
 
-function MainMenu({ onNavigate }: MainMenuProps) {
+function MainMenu({ onNavigate, onRouteNavigate }: MainMenuProps) {
   return (
     <>
       {/* Título */}
@@ -589,7 +590,7 @@ function MainMenu({ onNavigate }: MainMenuProps) {
 
         <div 
           className="admin-card card-health" 
-          onClick={() => onNavigate('health')}
+          onClick={() => onRouteNavigate('/admin/health')}
         >
           <div className="admin-card-icon">
             <i className="fa-solid fa-heart-pulse"></i>

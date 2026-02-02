@@ -128,6 +128,7 @@ class Settings(BaseSettings):
     # ===========================================
     
     GOOGLE_SAFE_BROWSING_KEY: str = ""
+    GOOGLE_SAFE_BROWSING_API_KEY: str = ""  # Alias para health check
     URLSCAN_API_KEY: str = ""
     
     # ===========================================
@@ -149,6 +150,23 @@ class Settings(BaseSettings):
     
     # Secret TOTP para MFA (gerado com pyotp.random_base32())
     MFA_SECRET: str = ""
+    ADMIN_MFA_SECRET: str = ""  # Alias para health check
+    
+    # ===========================================
+    # BREVO SMTP
+    # ===========================================
+    
+    BREVO_SMTP_SERVER: str = "smtp-relay.brevo.com"
+    BREVO_SMTP_PORT: int = 587
+    BREVO_SMTP_LOGIN: str = ""
+    BREVO_SMTP_KEY: str = ""
+    
+    # ===========================================
+    # URLs DE PRODUÇÃO
+    # ===========================================
+    
+    VERCEL_URL: str = "https://eyeweb.vercel.app"
+    RENDER_EXTERNAL_URL: str = ""
     
     # ===========================================
     # RESEND (Email Service)
