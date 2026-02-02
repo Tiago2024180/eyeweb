@@ -8,6 +8,11 @@ const protectedRoutes = ['/perfil', '/admin'];
 // Rotas que requerem ser admin
 const adminRoutes = ['/admin'];
 
+// Verificar se Supabase está configurado
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
+
 // Função para criar hash SHA-256 usando Web Crypto API (compatível com Edge Runtime)
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message);
@@ -25,6 +30,11 @@ async function isAdminEmail(email: string): Promise<boolean> {
 }
 
 export async function middleware(req: NextRequest) {
+  // Se Supabase não está configurado, deixar passar todas as rotas
+  if (!isSupabaseConfigured) {
+    return NextResponse.next();
+  }
+
   let res = NextResponse.next({
     request: {
       headers: req.headers,
@@ -100,7 +110,7 @@ export async function middleware(req: NextRequest) {
 
   // Se está autenticado e vai para login/signup, redirecionar para perfil
   if (user && (pathname === '/login' || pathname === '/signup')) {
-    const isAdmin = user.email ? isAdminEmail(user.email) : false;
+    const isAdmin = user.email ? await isAdminEmail(user.email) : false;
     // Admin vai direto para MFA se necessário
     if (isAdmin && pathname === '/login') {
       return NextResponse.redirect(new URL('/admin/mfa', req.url));
