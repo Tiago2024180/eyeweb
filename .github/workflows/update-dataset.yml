@@ -5,6 +5,9 @@
 # e atualiza o dataset no Hugging Face com novos dados.
 #
 # Também pode ser executado manualmente através do GitHub UI.
+#
+# NOTA: Os secrets HF_TOKEN e HF_DATASET_REPO devem ser configurados em:
+# GitHub → Settings → Secrets and variables → Actions
 
 name: 🔄 Update Eye Web Dataset
 

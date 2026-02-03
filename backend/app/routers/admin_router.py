@@ -16,6 +16,12 @@ import struct
 import os
 import asyncio
 import httpx
+from pathlib import Path
+
+# Carregar .env automaticamente
+from dotenv import load_dotenv
+env_path = Path(__file__).parent.parent.parent / ".env"
+load_dotenv(env_path)
 
 from ..config import get_settings
 
