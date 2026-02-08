@@ -324,8 +324,11 @@ def get_email_template(code: str) -> str:
                         <!-- Footer -->
                         <tr>
                             <td style="padding: 24px 32px; background-color: #0a0a0a; border-top: 1px solid #222222;">
-                                <p style="margin: 0; font-size: 12px; color: #666666; text-align: center;">
-                                    Eye Web — Protege os teus dados
+                                <p style="margin: 0 0 8px; font-size: 12px; color: #666666; text-align: center;">
+                                    EyeWeb: Let's keep an eye on each other.
+                                </p>
+                                <p style="margin: 0; font-size: 12px; text-align: center;">
+                                    <a href="https://eyeweb.vercel.app" style="color: #ff0000; text-decoration: none;">Link para o Eye Web</a>
                                 </p>
                             </td>
                         </tr>

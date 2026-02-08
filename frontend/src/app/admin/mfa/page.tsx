@@ -297,9 +297,8 @@ export default function AdminMFAPage() {
       sessionStorage.removeItem('admin_pending_password');
       localStorage.removeItem('admin_mfa_strikes');
 
-      // Marcar MFA como verificado (para a página admin saber)
+      // Marcar MFA como verificado (válido até fazer logout)
       sessionStorage.setItem('mfa_verified', 'true');
-      sessionStorage.setItem('mfa_verified_at', Date.now().toString());
 
       // Redirecionar para admin (usar window.location para refresh completo)
       window.location.href = '/admin';

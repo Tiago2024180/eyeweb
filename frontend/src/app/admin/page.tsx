@@ -15,19 +15,10 @@ export default function AdminDashboardPage() {
   const { user, profile, isAuthenticated, isAdmin, loading, logout, refreshProfile } = useAuth();
   
   // Verificar MFA de forma síncrona para evitar flicker
+  // MFA é válido para toda a sessão (até fazer logout)
   const getInitialMfaState = () => {
     if (typeof window === 'undefined') return false;
-    const verified = sessionStorage.getItem('mfa_verified') === 'true';
-    const verifiedAt = sessionStorage.getItem('mfa_verified_at');
-    if (verified && verifiedAt) {
-      const expiryTime = 60 * 60 * 1000; // 1 hora
-      const isExpired = Date.now() - parseInt(verifiedAt) > expiryTime;
-      if (!isExpired) return true;
-      // Limpar se expirado
-      sessionStorage.removeItem('mfa_verified');
-      sessionStorage.removeItem('mfa_verified_at');
-    }
-    return false;
+    return sessionStorage.getItem('mfa_verified') === 'true';
   };
   
   const [mfaVerified, setMfaVerified] = useState(getInitialMfaState);
@@ -106,7 +97,6 @@ export default function AdminDashboardPage() {
 
   const handleLogout = async () => {
     sessionStorage.removeItem('mfa_verified');
-    sessionStorage.removeItem('mfa_verified_at');
     await logout();
     router.push('/login');
   };
@@ -574,7 +564,7 @@ function MainMenu({ onNavigate, onRouteNavigate }: MainMenuProps) {
       <div className="admin-cards-grid">
         <div 
           className="admin-card card-emails" 
-          onClick={() => onNavigate('emails')}
+          onClick={() => onRouteNavigate('/admin/emails')}
         >
           <div className="admin-card-icon">
             <i className="fa-solid fa-envelope"></i>

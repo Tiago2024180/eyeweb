@@ -201,6 +201,366 @@ async def test_totp():
 
 
 # ===========================================
+# GESTOR DE E-MAILS
+# ===========================================
+
+class SendBroadcastEmailRequest(BaseModel):
+    """Request para enviar email em massa."""
+    subject: str
+    message: str  # Conteúdo HTML ou texto
+    test_mode: bool = False  # Se True, envia apenas para o admin
+
+
+class SendBroadcastEmailResponse(BaseModel):
+    """Response do envio de email em massa."""
+    success: bool
+    message: str
+    total_recipients: int
+    successful_sends: int
+    failed_sends: int
+    failed_emails: Optional[List[str]] = None
+
+
+class EmailSubscriber(BaseModel):
+    """Modelo de subscritor."""
+    email: str
+    display_name: Optional[str] = None
+    subscribed_at: Optional[str] = None
+
+
+class EmailStatsResponse(BaseModel):
+    """Estatísticas de email."""
+    total_subscribers: int
+    subscribers: List[EmailSubscriber]
+
+
+def get_broadcast_email_template(subject: str, message: str) -> str:
+    """
+    Template HTML para emails de broadcast/comunicados.
+    """
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{subject}</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="100%" max-width="600" cellpadding="0" cellspacing="0" style="background-color: #111111; border-radius: 16px; border: 1px solid #222222; overflow: hidden;">
+                        <!-- Header -->
+                        <tr>
+                            <td style="padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #222222;">
+                                <h1 style="margin: 0; font-size: 24px; font-weight: 700; color: #ffffff;">Eye Web</h1>
+                                <p style="margin: 8px 0 0; font-size: 14px; color: #666666;">Site Oficial do EyeWeb</p>
+                            </td>
+                        </tr>
+                        
+                        <!-- Content -->
+                        <tr>
+                            <td style="padding: 32px;">
+                                <h2 style="margin: 0 0 20px; font-size: 22px; font-weight: 600; color: #ffffff;">
+                                    {subject}
+                                </h2>
+                                
+                                <div style="font-size: 15px; color: #cccccc; line-height: 1.7;">
+                                    {message}
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding: 24px 32px; background-color: #0a0a0a; border-top: 1px solid #222222;">
+                                <p style="margin: 0 0 8px; font-size: 13px; color: #666666; text-align: center;">
+                                    EyeWeb: Let's keep an eye on each other.
+                                </p>
+                                <p style="margin: 0; font-size: 12px; text-align: center;">
+                                    <a href="https://eyeweb.vercel.app" style="color: #ff0000; text-decoration: none;">Link para o Eye Web</a>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+
+def get_welcome_email_template(display_name: str) -> str:
+    """
+    Template HTML para email de boas-vindas.
+    """
+    name = display_name or "Utilizador"
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Bem-vindo ao Eye Web!</title>
+    </head>
+    <body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a; padding: 40px 20px;">
+            <tr>
+                <td align="center">
+                    <table width="100%" max-width="600" cellpadding="0" cellspacing="0" style="background-color: #111111; border-radius: 16px; border: 1px solid #222222; overflow: hidden;">
+                        <!-- Header -->
+                        <tr>
+                            <td style="padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #222222;">
+                                <div style="font-size: 48px; margin-bottom: 16px;">🎉</div>
+                                <h1 style="margin: 0; font-size: 28px; font-weight: 700; color: #3b82f6;">Bem-vindo ao Eye Web!</h1>
+                            </td>
+                        </tr>
+                        
+                        <!-- Content -->
+                        <tr>
+                            <td style="padding: 32px;">
+                                <p style="margin: 0 0 20px; font-size: 18px; color: #ffffff;">
+                                    Olá <strong>{name}</strong>! 👋
+                                </p>
+                                
+                                <p style="margin: 0 0 20px; font-size: 15px; color: #cccccc; line-height: 1.7;">
+                                    Obrigado por te registares no <strong style="color: #3b82f6;">Eye Web</strong>! 
+                                    A tua segurança online é a nossa prioridade.
+                                </p>
+                                
+                                <div style="background-color: #1a1a2e; border-radius: 12px; padding: 20px; margin-bottom: 20px;">
+                                    <h3 style="margin: 0 0 12px; font-size: 16px; color: #3b82f6;">O que podes fazer:</h3>
+                                    <ul style="margin: 0; padding: 0 0 0 20px; color: #cccccc; line-height: 1.8;">
+                                        <li>🔍 <strong>Verificar emails</strong> — Descobre se os teus dados foram expostos</li>
+                                        <li>🔐 <strong>Testar passwords</strong> — Verifica se são seguras</li>
+                                        <li>🌐 <strong>Analisar URLs</strong> — Detecta sites maliciosos</li>
+                                        <li>📱 <strong>Verificar telefones</strong> — Confirma a segurança do teu número</li>
+                                    </ul>
+                                </div>
+                                
+                                <p style="margin: 0 0 20px; font-size: 15px; color: #888888; line-height: 1.7;">
+                                    Todos os dados são verificados usando <strong style="color: #22c55e;">K-Anonymity</strong> — 
+                                    nunca enviamos as tuas informações completas, apenas prefixos de hash.
+                                </p>
+                                
+                                <div style="text-align: center; margin-top: 24px;">
+                                    <a href="https://eyeweb.vercel.app" style="display: inline-block; background: linear-gradient(135deg, #3b82f6, #1d4ed8); color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px;">
+                                        Começar a usar o Eye Web
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <!-- Footer -->
+                        <tr>
+                            <td style="padding: 24px 32px; background-color: #0a0a0a; border-top: 1px solid #222222;">
+                                <p style="margin: 0 0 8px; font-size: 13px; color: #666666; text-align: center;">
+                                    EyeWeb: Let's keep an eye on each other.
+                                </p>
+                                <p style="margin: 0; font-size: 12px; text-align: center;">
+                                    <a href="https://eyeweb.vercel.app" style="color: #ff0000; text-decoration: none;">Link para o Eye Web</a>
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+    </html>
+    """
+
+
+# Brevo API Key - carregar de variável de ambiente
+BREVO_API_KEY = os.getenv("BREVO_API_KEY", "")
+
+
+async def send_email_via_brevo(to_email: str, subject: str, html_content: str) -> bool:
+    """
+    Envia um email usando a API do Brevo.
+    
+    Returns:
+        True se enviado com sucesso, False caso contrário
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": BREVO_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                json={
+                    "sender": {
+                        "name": "Eye Web",
+                        "email": "eyeweb.app@gmail.com"
+                    },
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content
+                },
+                timeout=15.0
+            )
+            print(f"Brevo response for {to_email}: {response.status_code} - {response.text}")
+            return response.status_code in [200, 201]
+    except Exception as e:
+        print(f"Erro ao enviar email para {to_email}: {e}")
+        return False
+
+
+@router.get("/emails/subscribers", response_model=EmailStatsResponse)
+async def get_email_subscribers():
+    """
+    Obtém a lista de subscritores (utilizadores registados).
+    """
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Supabase não configurado"
+        )
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.SUPABASE_URL}/rest/v1/profiles",
+                headers={
+                    "apikey": settings.SUPABASE_SERVICE_KEY,
+                    "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
+                    "Content-Type": "application/json"
+                },
+                params={
+                    "select": "email,display_name,created_at",
+                    "order": "created_at.desc"
+                },
+                timeout=10.0
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Erro ao obter subscritores"
+                )
+            
+            data = response.json()
+            subscribers = [
+                EmailSubscriber(
+                    email=row.get("email", ""),
+                    display_name=row.get("display_name"),
+                    subscribed_at=row.get("created_at")
+                )
+                for row in data
+                if row.get("email")  # Filtrar registos sem email
+            ]
+            
+            return EmailStatsResponse(
+                total_subscribers=len(subscribers),
+                subscribers=subscribers
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro: {str(e)}"
+        )
+
+
+@router.post("/emails/broadcast", response_model=SendBroadcastEmailResponse)
+async def send_broadcast_email(request: SendBroadcastEmailRequest):
+    """
+    Envia um email em massa para todos os subscritores.
+    
+    - test_mode=True: envia apenas para o admin
+    - test_mode=False: envia para todos os utilizadores
+    """
+    # Validar conteúdo
+    if not request.subject.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="O assunto não pode estar vazio"
+        )
+    
+    if not request.message.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A mensagem não pode estar vazia"
+        )
+    
+    # Obter lista de emails
+    if request.test_mode:
+        # Modo teste: apenas admin
+        recipients = ["sam.oliveira.dev@gmail.com"]
+    else:
+        # Modo real: todos os subscritores
+        stats = await get_email_subscribers()
+        recipients = [sub.email for sub in stats.subscribers if sub.email]
+    
+    if not recipients:
+        return SendBroadcastEmailResponse(
+            success=False,
+            message="Nenhum destinatário encontrado",
+            total_recipients=0,
+            successful_sends=0,
+            failed_sends=0
+        )
+    
+    # Criar template HTML
+    html_content = get_broadcast_email_template(request.subject, request.message)
+    
+    # Enviar emails
+    successful = 0
+    failed = 0
+    failed_emails = []
+    
+    for email in recipients:
+        success = await send_email_via_brevo(email, request.subject, html_content)
+        if success:
+            successful += 1
+        else:
+            failed += 1
+            failed_emails.append(email)
+        
+        # Pequeno delay para não sobrecarregar a API
+        await asyncio.sleep(0.1)
+    
+    return SendBroadcastEmailResponse(
+        success=failed == 0,
+        message=f"Emails enviados: {successful}/{len(recipients)}" if successful > 0 else "Falha ao enviar emails",
+        total_recipients=len(recipients),
+        successful_sends=successful,
+        failed_sends=failed,
+        failed_emails=failed_emails if failed > 0 else None
+    )
+
+
+@router.post("/emails/welcome")
+async def send_welcome_email(email: str, display_name: Optional[str] = None):
+    """
+    Envia email de boas-vindas para um novo utilizador.
+    
+    Este endpoint pode ser chamado automaticamente após registo.
+    """
+    html_content = get_welcome_email_template(display_name or "")
+    success = await send_email_via_brevo(
+        email,
+        "🎉 Bem-vindo ao Eye Web!",
+        html_content
+    )
+    
+    if success:
+        return {"success": True, "message": "Email de boas-vindas enviado!"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Falha ao enviar email de boas-vindas"
+        )
+
+
+# ===========================================
 # HEALTH CHECK - MONITOR DE SAÚDE
 # ===========================================
 

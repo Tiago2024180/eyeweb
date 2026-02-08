@@ -68,7 +68,7 @@
 .auto-refresh-toggle input {
   width: 16px;
   height: 16px;
-  accent-color: #dc2626;
+  accent-color: #ff0000;
 }
 
 .refresh-btn {
@@ -83,6 +83,9 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .refresh-btn:hover:not(:disabled) {

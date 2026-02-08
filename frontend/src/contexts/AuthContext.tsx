@@ -52,6 +52,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Enviar email de boas-vindas (apenas uma vez por utilizador)
+  const sendWelcomeEmail = async (email: string, displayName: string | null) => {
+    try {
+      // Verificar se já foi enviado (usando localStorage)
+      const welcomeSentKey = `welcome_sent_${email}`;
+      if (localStorage.getItem(welcomeSentKey)) {
+        return; // Já foi enviado
+      }
+      
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/api/admin/emails/welcome?email=${encodeURIComponent(email)}&display_name=${encodeURIComponent(displayName || '')}`, {
+        method: 'POST',
+      });
+      
+      if (response.ok) {
+        localStorage.setItem(welcomeSentKey, 'true');
+        console.log('✅ Email de boas-vindas enviado!');
+      }
+    } catch (error) {
+      console.error('Erro ao enviar email de boas-vindas:', error);
+    }
+  };
+
   // Carregar perfil do utilizador
   const loadProfile = async (userId: string) => {
     try {
@@ -88,6 +111,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           
           setProfile(data);
+          
+          // Enviar email de boas-vindas para novos utilizadores (não admin)
+          if (data.email && !isAdminEmail(data.email)) {
+            sendWelcomeEmail(data.email, data.display_name);
+          }
+          
           return;
         }
         return;
