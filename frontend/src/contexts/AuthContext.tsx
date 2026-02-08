@@ -117,6 +117,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         if (error) {
           console.error('Error getting session:', error);
+          
+          // Se o erro for de refresh token inválido, limpar a sessão
+          if (error.message?.includes('Refresh Token') || error.message?.includes('Invalid')) {
+            console.warn('Invalid session detected, clearing auth state...');
+            await supabase.auth.signOut();
+          }
+          
           if (isMounted) setLoading(false);
           return;
         }
@@ -131,8 +138,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           
           setLoading(false);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('Auth init error:', error);
+        
+        // Tratamento para erros de refresh token
+        if (error?.message?.includes('Refresh Token') || error?.name === 'AuthApiError') {
+          console.warn('Auth error detected, clearing session...');
+          try {
+            await supabase.auth.signOut();
+          } catch {
+            // Ignorar erros ao fazer signOut
+          }
+        }
+        
         if (isMounted) setLoading(false);
       }
     };

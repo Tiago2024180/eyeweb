@@ -13,8 +13,24 @@ export default function AdminDashboardPage() {
   console.log('🔴 Admin Page Component Mounted');
   const router = useRouter();
   const { user, profile, isAuthenticated, isAdmin, loading, logout, refreshProfile } = useAuth();
-  const [mfaVerified, setMfaVerified] = useState(false);
-  const [checkingMfa, setCheckingMfa] = useState(true);
+  
+  // Verificar MFA de forma síncrona para evitar flicker
+  const getInitialMfaState = () => {
+    if (typeof window === 'undefined') return false;
+    const verified = sessionStorage.getItem('mfa_verified') === 'true';
+    const verifiedAt = sessionStorage.getItem('mfa_verified_at');
+    if (verified && verifiedAt) {
+      const expiryTime = 60 * 60 * 1000; // 1 hora
+      const isExpired = Date.now() - parseInt(verifiedAt) > expiryTime;
+      if (!isExpired) return true;
+      // Limpar se expirado
+      sessionStorage.removeItem('mfa_verified');
+      sessionStorage.removeItem('mfa_verified_at');
+    }
+    return false;
+  };
+  
+  const [mfaVerified, setMfaVerified] = useState(getInitialMfaState);
   const [currentSection, setCurrentSection] = useState<AdminSection>('menu');
   const [profileOpen, setProfileOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -26,28 +42,6 @@ export default function AdminDashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Verificar MFA
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const verified = sessionStorage.getItem('mfa_verified') === 'true';
-      const verifiedAt = sessionStorage.getItem('mfa_verified_at');
-      
-      if (verified && verifiedAt) {
-        const expiryTime = 60 * 60 * 1000; // 1 hora
-        const isExpired = Date.now() - parseInt(verifiedAt) > expiryTime;
-        
-        if (!isExpired) {
-          setMfaVerified(true);
-        } else {
-          sessionStorage.removeItem('mfa_verified');
-          sessionStorage.removeItem('mfa_verified_at');
-        }
-      }
-      
-      setCheckingMfa(false);
-    }
-  }, []);
 
   // Timeout para profile - não ficar preso para sempre
   useEffect(() => {
@@ -86,7 +80,7 @@ export default function AdminDashboardPage() {
   // Redirecionar se não autenticado ou não admin
   useEffect(() => {
     // Esperar que loading termine
-    if (loading || checkingMfa) return;
+    if (loading) return;
     
     // Se não autenticado, ir para login
     if (!isAuthenticated) {
@@ -108,7 +102,7 @@ export default function AdminDashboardPage() {
       window.location.href = '/admin/mfa';
       return;
     }
-  }, [isAuthenticated, isAdmin, profile, loading, checkingMfa, mfaVerified]);
+  }, [isAuthenticated, isAdmin, profile, loading, mfaVerified]);
 
   const handleLogout = async () => {
     sessionStorage.removeItem('mfa_verified');
@@ -332,8 +326,8 @@ export default function AdminDashboardPage() {
     }
   };
 
-  // Loading state - mostrar loading enquanto verifica auth e MFA
-  if (loading || checkingMfa) {
+  // Loading state - mostrar loading enquanto verifica auth
+  if (loading) {
     return (
       <div className="admin-loading">
         <div className="spinner"></div>

@@ -552,17 +552,27 @@ async def check_resend() -> Dict[str, Any]:
     
     try:
         async with httpx.AsyncClient() as client:
-            # Verificar API key fazendo uma chamada simples à API
-            response = await client.get(
-                "https://api.resend.com/domains",
-                headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+            # Tentar enviar um email com dados inválidos para verificar se a API responde
+            # Um email sem destinatário retorna 422 (validation error) se a key for válida
+            # e 401 se a key for inválida
+            response = await client.post(
+                "https://api.resend.com/emails",
+                headers={
+                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={},  # Payload vazio para forçar erro de validação
                 timeout=5.0
             )
             
-            if response.status_code == 200:
-                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
-            elif response.status_code == 401:
+            if response.status_code == 401:
                 return {"status": "offline", "message": "API Key inválida", "url": resend_dashboard}
+            elif response.status_code in [400, 422]:
+                # Erro de validação = API respondeu, key é válida
+                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
+            elif response.status_code == 200:
+                # Não deveria acontecer com payload vazio, mas OK
+                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
             else:
                 return {"status": "degraded", "message": f"Status: {response.status_code}", "url": resend_dashboard}
     except httpx.TimeoutException:
