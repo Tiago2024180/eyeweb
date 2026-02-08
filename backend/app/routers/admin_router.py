@@ -903,42 +903,42 @@ async def check_vercel() -> Dict[str, Any]:
         return {"status": "degraded", "message": f"Status code: {response.status_code}", "url": vercel_dashboard}
 
 
-async def check_resend() -> Dict[str, Any]:
-    """Verifica conectividade com a API do Resend (serviço de email)."""
-    resend_dashboard = "https://resend.com/api-keys"
+async def check_brevo() -> Dict[str, Any]:
+    """Verifica conectividade com a API do Brevo (serviço de email)."""
+    brevo_dashboard = "https://app.brevo.com/settings/keys/api"
     
-    if not settings.RESEND_API_KEY:
-        return {"status": "unknown", "message": "API Key não configurada", "url": resend_dashboard}
+    if not BREVO_API_KEY:
+        return {"status": "unknown", "message": "API Key não configurada", "url": brevo_dashboard}
     
     try:
         async with httpx.AsyncClient() as client:
-            # Tentar enviar um email com dados inválidos para verificar se a API responde
-            # Um email sem destinatário retorna 422 (validation error) se a key for válida
-            # e 401 se a key for inválida
-            response = await client.post(
-                "https://api.resend.com/emails",
+            # Verificar conta do Brevo
+            response = await client.get(
+                "https://api.brevo.com/v3/account",
                 headers={
-                    "Authorization": f"Bearer {settings.RESEND_API_KEY}",
-                    "Content-Type": "application/json"
+                    "api-key": BREVO_API_KEY,
+                    "Accept": "application/json"
                 },
-                json={},  # Payload vazio para forçar erro de validação
                 timeout=5.0
             )
             
             if response.status_code == 401:
-                return {"status": "offline", "message": "API Key inválida", "url": resend_dashboard}
-            elif response.status_code in [400, 422]:
-                # Erro de validação = API respondeu, key é válida
-                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
+                return {"status": "offline", "message": "API Key inválida", "url": brevo_dashboard}
             elif response.status_code == 200:
-                # Não deveria acontecer com payload vazio, mas OK
-                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
+                data = response.json()
+                plan = data.get("plan", [{}])[0].get("type", "unknown") if data.get("plan") else "unknown"
+                return {
+                    "status": "online", 
+                    "message": "API operacional",
+                    "details": {"plano": plan},
+                    "url": brevo_dashboard
+                }
             else:
-                return {"status": "degraded", "message": f"Status: {response.status_code}", "url": resend_dashboard}
+                return {"status": "degraded", "message": f"Status: {response.status_code}", "url": brevo_dashboard}
     except httpx.TimeoutException:
-        return {"status": "offline", "message": "Timeout na conexão", "url": resend_dashboard}
+        return {"status": "offline", "message": "Timeout na conexão", "url": brevo_dashboard}
     except Exception as e:
-        return {"status": "offline", "message": str(e), "url": resend_dashboard}
+        return {"status": "offline", "message": str(e), "url": brevo_dashboard}
 
 
 @router.get("/health-check", response_model=HealthCheckResponse)
@@ -993,7 +993,7 @@ async def health_check():
     # Infraestrutura
     checks.append(("Render (Backend)", check_render, "Infraestrutura"))
     checks.append(("Vercel (Frontend)", check_vercel, "Infraestrutura"))
-    checks.append(("Resend (Email)", check_resend, "Infraestrutura"))
+    checks.append(("Brevo (Email)", check_brevo, "Infraestrutura"))
     
     # Executar todos os checks em paralelo
     tasks = [check_service(name, func, cat) for name, func, cat in checks]

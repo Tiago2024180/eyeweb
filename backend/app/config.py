@@ -156,6 +156,7 @@ class Settings(BaseSettings):
     # BREVO SMTP
     # ===========================================
     
+    BREVO_API_KEY: str = ""
     BREVO_SMTP_SERVER: str = "smtp-relay.brevo.com"
     BREVO_SMTP_PORT: int = 587
     BREVO_SMTP_LOGIN: str = ""
