@@ -73,11 +73,13 @@ jobs:
       # 5. (Opcional) Notificação de sucesso
       - name: ✅ Resumo da Execução
         if: success()
+        env:
+          HF_REPO: ${{ secrets.HF_DATASET_REPO }}
         run: |
           echo "## ✅ Atualização Concluída com Sucesso!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Data:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-          echo "- **Repositório HF:** ${{ secrets.HF_DATASET_REPO }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Repositório HF:** Samezinho/eye-web-breaches" >> $GITHUB_STEP_SUMMARY
           echo "- **Trigger:** ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
       
       # 6. (Opcional) Notificação de falha
