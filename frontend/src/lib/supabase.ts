@@ -229,25 +229,24 @@ export async function updateProfile(userId: string, updates: Partial<Profile>) {
 
 /**
  * Verificar se email é de admin (para bloquear Google OAuth)
- * Usa hash SHA-256 para não expor o email admin no código
+ * Consulta a tabela profiles para verificar se o email tem role='admin'
  */
-export function isAdminEmail(email: string): boolean {
-  // Hash do email admin (SHA-256) - não expor email no código
-  const adminEmailHash = process.env.NEXT_PUBLIC_ADMIN_EMAIL_HASH || '';
+export async function isAdminEmail(email: string): Promise<boolean> {
+  if (!email) return false;
   
-  if (!adminEmailHash) return false;
-  
-  // Calcular hash do email introduzido
-  const emailHash = hashEmail(email.toLowerCase().trim());
-  
-  return emailHash === adminEmailHash;
-}
-
-/**
- * Gerar hash SHA-256 de uma string
- */
-function hashEmail(email: string): string {
-  return CryptoJS.SHA256(email).toString();
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('email', email.toLowerCase().trim())
+      .single();
+    
+    if (error || !data) return false;
+    
+    return data.role === 'admin';
+  } catch {
+    return false;
+  }
 }
 
 /**

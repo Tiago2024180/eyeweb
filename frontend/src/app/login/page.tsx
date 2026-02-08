@@ -182,7 +182,15 @@ function LoginContent() {
 
   // Detectar se é email de admin
   useEffect(() => {
-    setIsAdminLogin(isAdminEmail(email));
+    const checkAdminEmail = async () => {
+      if (email && email.includes('@')) {
+        const result = await isAdminEmail(email);
+        setIsAdminLogin(result);
+      } else {
+        setIsAdminLogin(false);
+      }
+    };
+    checkAdminEmail();
   }, [email]);
 
   // Cooldown para reenviar código
@@ -270,11 +278,11 @@ function LoginContent() {
       // Debug: verificar se é admin
       console.log('Email:', email);
       console.log('isAdminLogin state:', isAdminLogin);
-      console.log('isAdminEmail(email):', isAdminEmail(email));
       
       // Se é admin, redirecionar para MFA em vez de enviar OTP por email
       // Usar verificação direta em vez do state (mais fiável)
-      const isAdmin = isAdminEmail(email);
+      const isAdmin = await isAdminEmail(email);
+      console.log('isAdminEmail result:', isAdmin);
       if (isAdmin) {
         console.log('Admin detectado! A redirecionar para MFA...');
         // Guardar email no sessionStorage para a página MFA
