@@ -88,6 +88,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         
         if (currentUser) {
+          // Verificar se é admin (async)
+          const userIsAdmin = await isAdminEmail(currentUser.email || '');
+          
           // Criar perfil básico
           const newProfile = {
             id: currentUser.id,
@@ -96,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                          currentUser.user_metadata?.full_name || 
                          currentUser.email?.split('@')[0],
             avatar_url: currentUser.user_metadata?.avatar_url,
-            role: isAdminEmail(currentUser.email || '') ? 'admin' : 'user',
+            role: userIsAdmin ? 'admin' : 'user',
           };
           
           const { data, error } = await supabase
@@ -113,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(data);
           
           // Enviar email de boas-vindas para novos utilizadores (não admin)
-          if (data.email && !isAdminEmail(data.email)) {
+          if (data.email && !userIsAdmin) {
             sendWelcomeEmail(data.email, data.display_name);
           }
           
@@ -273,7 +276,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       // Verificar se é email de admin (não pode registar via signup normal)
-      if (isAdminEmail(email)) {
+      const emailIsAdmin = await isAdminEmail(email);
+      if (emailIsAdmin) {
         throw new Error('Este email não pode ser registado. Contacte o administrador.');
       }
       
