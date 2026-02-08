@@ -543,31 +543,32 @@ async def check_vercel() -> Dict[str, Any]:
         return {"status": "degraded", "message": f"Status code: {response.status_code}", "url": vercel_dashboard}
 
 
-async def check_brevo() -> Dict[str, Any]:
-    """Verifica conexão SMTP com Brevo."""
-    import smtplib
+async def check_resend() -> Dict[str, Any]:
+    """Verifica conectividade com a API do Resend (serviço de email)."""
+    resend_dashboard = "https://resend.com/api-keys"
     
-    smtp_server = settings.BREVO_SMTP_SERVER or "smtp-relay.brevo.com"
-    smtp_port = settings.BREVO_SMTP_PORT or 587
-    smtp_login = settings.BREVO_SMTP_LOGIN
-    brevo_dashboard = "https://app.brevo.com/settings/keys/smtp"
-    
-    if not smtp_login:
-        return {"status": "unknown", "message": "SMTP não configurado", "url": brevo_dashboard}
+    if not settings.RESEND_API_KEY:
+        return {"status": "unknown", "message": "API Key não configurada", "url": resend_dashboard}
     
     try:
-        loop = asyncio.get_event_loop()
-        
-        def test_smtp():
-            server = smtplib.SMTP(smtp_server, smtp_port, timeout=5)
-            server.ehlo()
-            server.quit()
-            return True
-        
-        await loop.run_in_executor(None, test_smtp)
-        return {"status": "online", "message": "SMTP acessível", "details": {"server": smtp_server, "port": smtp_port}, "url": brevo_dashboard}
+        async with httpx.AsyncClient() as client:
+            # Verificar API key fazendo uma chamada simples à API
+            response = await client.get(
+                "https://api.resend.com/domains",
+                headers={"Authorization": f"Bearer {settings.RESEND_API_KEY}"},
+                timeout=5.0
+            )
+            
+            if response.status_code == 200:
+                return {"status": "online", "message": "API operacional", "url": resend_dashboard}
+            elif response.status_code == 401:
+                return {"status": "offline", "message": "API Key inválida", "url": resend_dashboard}
+            else:
+                return {"status": "degraded", "message": f"Status: {response.status_code}", "url": resend_dashboard}
+    except httpx.TimeoutException:
+        return {"status": "offline", "message": "Timeout na conexão", "url": resend_dashboard}
     except Exception as e:
-        return {"status": "offline", "message": str(e), "url": brevo_dashboard}
+        return {"status": "offline", "message": str(e), "url": resend_dashboard}
 
 
 @router.get("/health-check", response_model=HealthCheckResponse)
@@ -622,7 +623,7 @@ async def health_check():
     # Infraestrutura
     checks.append(("Render (Backend)", check_render, "Infraestrutura"))
     checks.append(("Vercel (Frontend)", check_vercel, "Infraestrutura"))
-    checks.append(("Brevo SMTP", check_brevo, "Infraestrutura"))
+    checks.append(("Resend (Email)", check_resend, "Infraestrutura"))
     
     # Executar todos os checks em paralelo
     tasks = [check_service(name, func, cat) for name, func, cat in checks]
