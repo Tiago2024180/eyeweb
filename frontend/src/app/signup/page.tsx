@@ -188,9 +188,19 @@ export default function SignupPage() {
     }
   }, [isAuthenticated, loading, router]);
 
-  // Detectar se é email de admin
+  // Detectar se é email de admin (async)
   useEffect(() => {
-    setIsAdminSignup(isAdminEmail(email));
+    const checkAdmin = async () => {
+      if (email && email.includes('@')) {
+        const isAdmin = await isAdminEmail(email);
+        setIsAdminSignup(isAdmin);
+      } else {
+        setIsAdminSignup(false);
+      }
+    };
+    
+    const timeoutId = setTimeout(checkAdmin, 300);
+    return () => clearTimeout(timeoutId);
   }, [email]);
 
   // Validar força da password

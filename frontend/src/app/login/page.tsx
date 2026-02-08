@@ -180,17 +180,27 @@ function LoginContent() {
     }
   }, [isAuthenticated, isAdmin, loading, router, isRecoveryMode]);
 
-  // Detectar se é email de admin
+  // Detectar se é email de admin (com debounce para não fazer muitas queries)
   useEffect(() => {
-    const checkAdminEmail = async () => {
-      if (email && email.includes('@')) {
+    // Só verificar se o email parece completo (tem @ e domínio)
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    
+    if (!email || !emailRegex.test(email)) {
+      setIsAdminLogin(false);
+      return;
+    }
+    
+    // Debounce de 500ms para não fazer query a cada tecla
+    const timeoutId = setTimeout(async () => {
+      try {
         const result = await isAdminEmail(email);
         setIsAdminLogin(result);
-      } else {
+      } catch {
         setIsAdminLogin(false);
       }
-    };
-    checkAdminEmail();
+    }, 500);
+    
+    return () => clearTimeout(timeoutId);
   }, [email]);
 
   // Cooldown para reenviar código
@@ -249,12 +259,21 @@ function LoginContent() {
         { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
       );
       
-      const { error: credError } = await tempClient.auth.signInWithPassword({ 
+      const { data: signInData, error: credError } = await tempClient.auth.signInWithPassword({ 
         email, 
         password
       });
       
+      // DEBUG: Ver erro real do Supabase
+      console.log('Supabase signIn response:', { data: signInData, error: credError });
+      
       if (credError) {
+        console.error('Supabase Auth Error Details:', {
+          message: credError.message,
+          status: credError.status,
+          name: credError.name,
+          cause: credError.cause
+        });
         // Verificar se o email existe usando RPC function (bypass RLS)
         const { data: emailExists } = await supabase.rpc('check_email_exists', {
           p_email: email

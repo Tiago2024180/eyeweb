@@ -229,22 +229,24 @@ export async function updateProfile(userId: string, updates: Partial<Profile>) {
 
 /**
  * Verificar se email é de admin (para bloquear Google OAuth)
- * Consulta a tabela profiles para verificar se o email tem role='admin'
+ * Usa função RPC segura no Supabase
  */
 export async function isAdminEmail(email: string): Promise<boolean> {
-  if (!email) return false;
+  if (!email || !email.includes('@')) return false;
   
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('email', email.toLowerCase().trim())
-      .single();
+    const { data, error } = await supabase.rpc('is_admin_email', {
+      check_email: email
+    });
     
-    if (error || !data) return false;
+    if (error) {
+      console.error('isAdminEmail RPC error:', error);
+      return false;
+    }
     
-    return data.role === 'admin';
-  } catch {
+    return data === true;
+  } catch (err) {
+    console.error('isAdminEmail error:', err);
     return false;
   }
 }
