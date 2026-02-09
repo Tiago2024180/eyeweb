@@ -280,37 +280,23 @@ export default function AdminMFAPage() {
           password: pendingLogin.password,
         });
 
-        console.log('🔐 SignIn result:', { data: signInData, error: signInError });
-
         if (signInError) {
           console.error('🔐 SignIn error:', signInError);
           throw signInError;
         }
 
-        // Aguardar um pouco para a sessão ser persistida
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Verificar se sessão foi criada
-        const { data: { session } } = await supabase.auth.getSession();
-        console.log('🔐 Session após login:', session?.user?.email);
+        // Aguardar sessão ser persistida no localStorage
+        await new Promise(resolve => setTimeout(resolve, 300));
         
-        // Verificar se sessão está no localStorage
+        // Verificar se sessão está no localStorage - se não, forçar setSession
         const storedToken = localStorage.getItem('sb-zawqvduiuljlvquxzlpq-auth-token');
-        console.log('🔐 Token no localStorage:', storedToken ? 'EXISTE' : 'NÃO EXISTE');
-        
-        if (!session) {
-          console.error('🔐 ERRO: Sessão não foi criada!');
-          // Tentar setSession manualmente
-          if (signInData.session) {
-            console.log('🔐 Tentando setSession manualmente...');
-            await supabase.auth.setSession({
-              access_token: signInData.session.access_token,
-              refresh_token: signInData.session.refresh_token,
-            });
-            await new Promise(resolve => setTimeout(resolve, 500));
-            const tokenAfter = localStorage.getItem('sb-zawqvduiuljlvquxzlpq-auth-token');
-            console.log('🔐 Token após setSession:', tokenAfter ? 'EXISTE' : 'NÃO EXISTE');
-          }
+        if (!storedToken && signInData.session) {
+          console.log('🔐 Token não encontrado, a forçar setSession...');
+          await supabase.auth.setSession({
+            access_token: signInData.session.access_token,
+            refresh_token: signInData.session.refresh_token,
+          });
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
 
@@ -321,12 +307,6 @@ export default function AdminMFAPage() {
 
       // Marcar MFA como verificado (válido até fazer logout explícito)
       localStorage.setItem('mfa_verified', 'true');
-
-      // DEBUG: Verificar localStorage antes do redirect
-      console.log('🔐 Verificação final localStorage:', Object.keys(localStorage).filter(k => k.includes('sb-')));
-      
-      // Aguardar mais um pouco para garantir persistência
-      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Redirecionar para admin (usar window.location para refresh completo)
       window.location.href = '/admin';

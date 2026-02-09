@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { 
   supabase, 
@@ -51,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Ref para o ID do user atual (acessível em closures sem stale state)
+  const userIdRef = useRef<string | null>(null);
 
   // Enviar email de boas-vindas (apenas uma vez por utilizador)
   const sendWelcomeEmail = async (email: string, displayName: string | null) => {
@@ -164,6 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (isMounted) {
           setSession(session);
           setUser(session?.user ?? null);
+          userIdRef.current = session?.user?.id ?? null;
           
           if (session?.user) {
             await loadProfile(session.user.id);
@@ -191,7 +195,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
 
     // Listener para mudanças de auth
-    // NOTA: Ignorar INITIAL_SESSION e TOKEN_REFRESHED para evitar loads desnecessários
+    // NOTA: Ignorar eventos que não mudam estado real para evitar re-renders desnecessários
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event:', event);
@@ -202,20 +206,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'INITIAL_SESSION') return;
         
         // TOKEN_REFRESHED só renova o JWT - os dados do perfil não mudam
-        // Evitar fetch desnecessário que causa AbortError em concurrent requests
         if (event === 'TOKEN_REFRESHED') {
           setSession(session);
           setUser(session?.user ?? null);
           return;
         }
         
+        // SIGNED_OUT explícito - limpar tudo
+        if (event === 'SIGNED_OUT') {
+          setSession(null);
+          setUser(null);
+          setProfile(null);
+          userIdRef.current = null;
+          setLoading(false);
+          return;
+        }
+        
+        // SIGNED_IN do mesmo user (BroadcastChannel sync entre tabs)
+        // Não recarregar perfil - evitar re-render que bloqueia botões
+        if (event === 'SIGNED_IN' && session?.user?.id === userIdRef.current) {
+          setSession(session);
+          return;
+        }
+        
+        // Outros eventos (SIGNED_IN novo user, USER_UPDATED, etc.)
         setSession(session);
         setUser(session?.user ?? null);
+        userIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
           await loadProfile(session.user.id);
-        } else {
-          setProfile(null);
         }
         
         setLoading(false);

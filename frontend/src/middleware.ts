@@ -2,8 +2,12 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Rotas que requerem autenticação (apenas perfil - admin é verificado client-side)
-const protectedRoutes = ['/perfil'];
+// Rotas que requerem autenticação no middleware
+// NOTA: Desde que migramos o Supabase client para createClient (localStorage),
+// o middleware server-side NÃO consegue ver sessões client-side.
+// A verificação de auth é feita client-side nas próprias páginas.
+// O middleware só protege rotas onde o redirect para login é ESSENCIAL no server-side.
+const protectedRoutes: string[] = [];
 
 // Rotas de admin são verificadas inteiramente no client-side
 // porque a sessão Supabase é guardada em localStorage (não cookies)
