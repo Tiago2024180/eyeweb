@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     GROQ_CHAT_MODEL: str = "llama-3.3-70b-versatile"
     
     # ===========================================
+    # GROQ (AI User Chat - Public Widget)
+    # ===========================================
+    
+    GROQ_USER_CHAT_API_KEY: str = ""
+    GROQ_USER_CHAT_MODEL: str = "llama-3.3-70b-versatile"
+    
+    # ===========================================
     # URL SCANNING SERVICES
     # ===========================================
     

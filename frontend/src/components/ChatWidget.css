@@ -1,0 +1,269 @@
+/* ═══════════════════════════════════════════════════════════════
+   EYEWEB AGENT — Chat Widget
+   Design fiel ao original eyeweb-agent
+   - Background: #161b22, #0d1117
+   - Accent: #ff0000
+   - Border: #30363d
+   - Text: #c9d1d9
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══ CONTAINER ═══ */
+.ew-widget {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 999999;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* ═══ LAUNCHER (botao flutuante) ═══ */
+.ew-launcher {
+  width: 60px;
+  height: 60px;
+  background: #ff0000;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(255, 0, 0, 0.4);
+  transition: transform 0.3s;
+}
+
+.ew-launcher:hover {
+  transform: scale(1.1);
+}
+
+.ew-launcher svg {
+  width: 30px;
+  height: 30px;
+  fill: white;
+}
+
+/* ═══ CHAT BOX ═══ */
+.ew-box {
+  width: 350px;
+  height: 500px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 15px;
+  position: absolute;
+  bottom: 80px;
+  right: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  animation: ewSlideUp 0.25s ease-out;
+}
+
+.ew-box.active {
+  display: flex;
+}
+
+@keyframes ewSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ═══ HEADER ═══ */
+.ew-header {
+  background: #21262D;
+  padding: 15px;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #30363d;
+  flex-shrink: 0;
+}
+
+.ew-header strong {
+  font-size: 0.95rem;
+}
+
+.ew-close {
+  cursor: pointer;
+  font-size: 20px;
+  color: rgba(255, 255, 255, 0.6);
+  transition: color 0.15s;
+  line-height: 1;
+}
+
+.ew-close:hover {
+  color: #ff0000;
+}
+
+/* ═══ HISTORICO DE MENSAGENS ═══ */
+.ew-history {
+  flex: 1;
+  padding: 15px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #0d1117;
+}
+
+/* Scrollbar */
+.ew-history::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ew-history::-webkit-scrollbar-track {
+  background: #0d1117;
+  border-radius: 3px;
+}
+
+.ew-history::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 3px;
+}
+
+.ew-history::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* ═══ MENSAGENS ═══ */
+.ew-msg {
+  padding: 10px 14px;
+  border-radius: 12px;
+  max-width: 85%;
+  font-size: 14px;
+  line-height: 1.4;
+  color: #c9d1d9;
+  word-wrap: break-word;
+  overflow: visible;
+}
+
+.ew-bot {
+  background: #30363d;
+  align-self: flex-start;
+  border-bottom-left-radius: 2px;
+}
+
+.ew-user {
+  background: #ff0000;
+  color: white;
+  align-self: flex-end;
+  border-bottom-right-radius: 2px;
+}
+
+/* ═══ TYPEWRITER ═══ */
+.typewriter-text {
+  display: inline;
+  white-space: pre-wrap;
+}
+
+.typewriter-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 18px;
+  background-color: #c9d1d9;
+  margin-left: 2px;
+  animation: ewBlink 0.6s infinite;
+  vertical-align: middle;
+  position: relative;
+  top: -1px;
+}
+
+@keyframes ewBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ═══ INPUT AREA ═══ */
+.ew-input-area {
+  padding: 12px;
+  background: #161b22;
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid #30363d;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.ew-input-area input {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: white;
+  padding: 0 10px;
+  border-radius: 6px;
+  outline: none;
+  height: 40px;
+  box-sizing: border-box;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.ew-input-area input:focus {
+  border-color: #ff0000;
+}
+
+.ew-input-area input::placeholder {
+  color: #8b949e;
+}
+
+.ew-input-area input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══ SEND BUTTON ═══ */
+.ew-send-btn {
+  width: 40px;
+  height: 40px;
+  background: #ff0000;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.ew-send-btn:hover:not(:disabled) {
+  background: #cc0000;
+}
+
+.ew-send-btn:disabled {
+  background: #666;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.ew-send-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: white;
+}
+
+/* ═══ RESPONSIVE ═══ */
+@media (max-width: 480px) {
+  .ew-box {
+    width: calc(100vw - 40px);
+    height: 70vh;
+    bottom: 75px;
+    right: 0;
+  }
+
+  .ew-launcher {
+    width: 52px;
+    height: 52px;
+  }
+
+  .ew-launcher svg {
+    width: 26px;
+    height: 26px;
+  }
+}

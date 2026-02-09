@@ -3,6 +3,7 @@ import './globals.css'
 import './login/login.css'
 import './perfil/perfil.css'
 import { AuthProvider } from '@/contexts/AuthContext'
+import ChatWidget from '@/components/ChatWidget'
 
 export const metadata: Metadata = {
   title: 'Eye Web - Breach Checker',
@@ -35,6 +36,7 @@ export default function RootLayout({
       <body>
         <AuthProvider>
           {children}
+          <ChatWidget />
         </AuthProvider>
       </body>
     </html>

@@ -1,0 +1,208 @@
+'use client';
+
+import { useState, useRef, useEffect, useCallback } from 'react';
+import './ChatWidget.css';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+interface ChatMsg {
+  text: string;
+  type: 'ew-bot' | 'ew-user';
+}
+
+export default function ChatWidget() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+  const [typingText, setTypingText] = useState('');
+  const [cooldown, setCooldown] = useState(false);
+  
+  const historyRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const cooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // ═══ PERSISTENCIA (sessionStorage) ═══
+  useEffect(() => {
+    const saved = sessionStorage.getItem('ewChatHistory');
+    if (saved) {
+      try {
+        const parsed: ChatMsg[] = JSON.parse(saved);
+        if (parsed.length > 0) {
+          setMessages(parsed);
+          return;
+        }
+      } catch {}
+    }
+    // Primeira vez — mensagem de boas-vindas
+    const welcome: ChatMsg = { text: 'Seja bem-vindo ao EyeWeb! Como posso ajudar?', type: 'ew-bot' };
+    setMessages([welcome]);
+    sessionStorage.setItem('ewChatHistory', JSON.stringify([welcome]));
+  }, []);
+
+  // Guardar historico sempre que muda
+  useEffect(() => {
+    if (messages.length > 0) {
+      sessionStorage.setItem('ewChatHistory', JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  // ═══ SCROLL ═══
+  const scrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => {
+      if (historyRef.current) {
+        historyRef.current.scrollTop = historyRef.current.scrollHeight;
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, typingText, scrollToBottom]);
+
+  // ═══ TYPEWRITER ═══
+  const typeWriter = useCallback((text: string, onComplete: () => void) => {
+    let i = 0;
+    setTypingText('');
+    setIsTyping(true);
+
+    const type = () => {
+      if (i < text.length) {
+        setTypingText(prev => prev + text.charAt(i));
+        i++;
+        typingTimeoutRef.current = setTimeout(type, 15);
+      } else {
+        setIsTyping(false);
+        setTypingText('');
+        onComplete();
+      }
+    };
+
+    setTimeout(type, 50);
+  }, []);
+
+  // ═══ COOLDOWN ═══
+  const applyCooldown = useCallback(() => {
+    setCooldown(true);
+    if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
+    cooldownTimeoutRef.current = setTimeout(() => {
+      setCooldown(false);
+    }, 1500);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
+    };
+  }, []);
+
+  // ═══ ENVIAR MENSAGEM ═══
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text || isTyping || cooldown) return;
+
+    const userMsg: ChatMsg = { text, type: 'ew-user' };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setCooldown(true);
+
+    try {
+      const res = await fetch(`${API_URL}/api/user/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text }),
+      });
+      const data = await res.json();
+      const botText = data.response || 'Erro ao processar. Tente novamente.';
+
+      // Typewriter effect + cooldown
+      typeWriter(botText, () => {
+        setMessages(prev => [...prev, { text: botText, type: 'ew-bot' }]);
+        applyCooldown();
+      });
+    } catch {
+      const errText = 'Erro ao ligar ao servidor. Tente mais tarde.';
+      typeWriter(errText, () => {
+        setMessages(prev => [...prev, { text: errText, type: 'ew-bot' }]);
+        applyCooldown();
+      });
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !isTyping && !cooldown) {
+      sendMessage();
+    }
+  };
+
+  const toggleChat = () => {
+    setIsOpen(prev => !prev);
+    if (!isOpen) {
+      setTimeout(() => {
+        scrollToBottom();
+        if (!isTyping && !cooldown) inputRef.current?.focus();
+      }, 100);
+    }
+  };
+
+  const isDisabled = isTyping || cooldown;
+
+  return (
+    <div className="ew-widget">
+      {/* Chat Box */}
+      <div className={`ew-box ${isOpen ? 'active' : ''}`}>
+        {/* Header */}
+        <div className="ew-header">
+          <strong>EyeWeb Agent</strong>
+          <span className="ew-close" onClick={() => setIsOpen(false)}>&times;</span>
+        </div>
+
+        {/* Historico */}
+        <div className="ew-history" ref={historyRef}>
+          {messages.map((msg, i) => (
+            <div key={i} className={`ew-msg ${msg.type}`}>
+              {msg.text}
+            </div>
+          ))}
+          {/* Typewriter ativo */}
+          {isTyping && (
+            <div className="ew-msg ew-bot">
+              <span className="typewriter-text">{typingText}</span>
+              <span className="typewriter-cursor"></span>
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="ew-input-area">
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder={isDisabled ? 'Aguarde a resposta...' : 'Escrever...'}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyPress}
+            disabled={isDisabled}
+          />
+          <button
+            className="ew-send-btn"
+            onClick={sendMessage}
+            disabled={isDisabled || !input.trim()}
+          >
+            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Launcher Button */}
+      <div className="ew-launcher" onClick={toggleChat}>
+        <svg viewBox="0 0 24 24">
+          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+        </svg>
+      </div>
+    </div>
+  );
+}

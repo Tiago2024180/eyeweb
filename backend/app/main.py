@@ -28,6 +28,7 @@ from .routers.url_router import router as url_router
 from .routers.auth_router import router as auth_router
 from .routers.admin_router import router as admin_router
 from .routers.chat_router import router as chat_router
+from .routers.user_chat_router import router as user_chat_router
 from .services.breach_service import get_breach_service
 
 # ===========================================
@@ -178,6 +179,12 @@ app.include_router(
 # Router de Chat Admin (mensagens + IA)
 app.include_router(
     chat_router,
+    prefix="/api"
+)
+
+# Router de Chat Público (EyeWeb Agent widget)
+app.include_router(
+    user_chat_router,
     prefix="/api"
 )
 
