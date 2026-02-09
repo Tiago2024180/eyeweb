@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
@@ -87,7 +87,22 @@ interface PasswordStrength {
   hasNumber: boolean;
 }
 
+// Wrapper com Suspense para useSearchParams
 export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <div className="auth-container">
+        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', color: 'white', background: '#0a0a0a' }}>
+          <p>A carregar...</p>
+        </div>
+      </div>
+    }>
+      <SignupContent />
+    </Suspense>
+  );
+}
+
+function SignupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { signupWithGoogle, isAuthenticated, loading } = useAuth();
