@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
+import JSZip from 'jszip';
 import './chat.css';
 
 // ===========================================
@@ -32,10 +33,12 @@ interface ContextMenuState {
 }
 
 interface MentionUser {
+  id: string;
   name: string;
   type: 'admin' | 'ai';
   icon: string;
   email?: string;
+  avatar_url?: string | null;
 }
 
 interface MentionProfileCard {
@@ -48,16 +51,8 @@ interface MentionProfileCard {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Membros conhecidos do chat (admins + IA)
-const CHAT_MEMBERS: MentionUser[] = [
-  { name: 'Samuka', type: 'admin', icon: 'fa-solid fa-user-shield' },
-  { name: 'Okscuna', type: 'admin', icon: 'fa-solid fa-user-shield' },
-  { name: 'Vanina Kollen', type: 'admin', icon: 'fa-solid fa-user-shield' },
-  { name: 'Eye AI', type: 'ai', icon: 'fa-solid fa-robot' },
-];
-
-// Regex para destacar mencoes no texto
-const MENTION_REGEX = /(@(?:eye|ia|ai|Samuka|Okscuna|Vanina Kollen))/gi;
+// IA sempre presente no chat
+const AI_MEMBER: MentionUser = { id: '00000000-0000-0000-0000-000000000000', name: 'Eye AI', type: 'ai', icon: 'fa-solid fa-robot' };
 
 // ===========================================
 // COMPONENTE PRINCIPAL
@@ -90,8 +85,8 @@ export default function AdminChatPage() {
   // Edit mode
   const [editingMessage, setEditingMessage] = useState<{ id: string; text: string } | null>(null);
   
-  // Pending file (preview before sending)
-  const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl: string | null } | null>(null);
+  // Pending files (preview before sending)
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; previewUrl: string | null }[]>([]);
   
   // Mentions
   const [showMentions, setShowMentions] = useState(false);
@@ -106,11 +101,20 @@ export default function AdminChatPage() {
   // Sidebar
   const [sidebarOpen, setSidebarOpen] = useState(false);
   
+  // Clear chat confirmation
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  
   // Online presence
   const [onlineAdmins, setOnlineAdmins] = useState<Set<string>>(new Set());
   
-  // Emails dos membros (carregados do Supabase)
-  const [memberEmails, setMemberEmails] = useState<Record<string, string>>({});
+  // Typing indicators: Map<user_id, { name, avatar_url, timeout }>
+  const [typingAdmins, setTypingAdmins] = useState<Map<string, { name: string; avatar_url: string | null }>>(new Map());
+  const typingTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const presenceChannelRef = useRef<any>(null);
+  const lastTypingBroadcast = useRef<number>(0);
+  
+  // Membros do chat (carregados dinamicamente do Supabase)
+  const [chatMembers, setChatMembers] = useState<MentionUser[]>([AI_MEMBER]);
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -174,24 +178,65 @@ export default function AdminChatPage() {
     }
   }, [loading, isAuthenticated, isAdmin, loadMessages, checkAiStatus]);
 
-  // Carregar emails dos admins
+  // Carregar membros dinamicamente via API (backend usa SERVICE_KEY, sem RLS)
   useEffect(() => {
     if (!isAuthenticated || !isAdmin) return;
-    const loadEmails = async () => {
+    
+    const loadMembers = async () => {
       try {
-        const { data } = await supabase
-          .from('admin_profiles')
-          .select('display_name, email');
-        if (data) {
-          const emails: Record<string, string> = {};
-          data.forEach((p: any) => {
-            if (p.display_name && p.email) emails[p.display_name] = p.email;
-          });
-          setMemberEmails(emails);
+        const response = await fetch(`${API_URL}/api/admin/chat/members`);
+        if (!response.ok) throw new Error('Erro ao carregar membros');
+        const data = await response.json();
+        
+        if (data.members && data.members.length > 0) {
+          const admins: MentionUser[] = data.members.map((p: any) => ({
+            id: p.id,
+            name: p.name || 'Admin',
+            type: 'admin' as const,
+            icon: 'fa-solid fa-user-shield',
+            email: p.email,
+            avatar_url: p.avatar_url || null,
+          }));
+          
+          setChatMembers([...admins, AI_MEMBER]);
         }
-      } catch {}
+      } catch (err) {
+        console.error('Erro ao carregar membros:', err);
+        // Fallback: tentar Supabase direto (funciona para Samuka via RLS)
+        try {
+          const { data: adminProfiles } = await supabase
+            .from('profiles')
+            .select('id, display_name, avatar_url, email, role')
+            .eq('role', 'admin');
+          
+          if (adminProfiles && adminProfiles.length > 0) {
+            const admins: MentionUser[] = adminProfiles.map((p: any) => ({
+              id: p.id,
+              name: p.display_name || p.email?.split('@')[0] || 'Admin',
+              type: 'admin' as const,
+              icon: 'fa-solid fa-user-shield',
+              email: p.email,
+              avatar_url: p.avatar_url || null,
+            }));
+            setChatMembers([...admins, AI_MEMBER]);
+          }
+        } catch {}
+      }
     };
-    loadEmails();
+    
+    loadMembers();
+    
+    // Subscrever a mudancas nos perfis (nome, avatar, etc.)
+    const profilesChannel = supabase
+      .channel('chat-profiles-sync')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles' },
+        () => { loadMembers(); }
+      )
+      .subscribe();
+    
+    return () => { supabase.removeChannel(profilesChannel); };
   }, [isAuthenticated, isAdmin]);
 
   // ═══ REALTIME ═══
@@ -248,13 +293,40 @@ export default function AdminChatPage() {
     presenceChannel
       .on('presence', { event: 'sync' }, () => {
         const state = presenceChannel.presenceState();
-        const onlineNames = new Set<string>();
+        const onlineIds = new Set<string>();
         Object.values(state).forEach((presences: any) => {
           presences.forEach((p: any) => {
-            if (p.name) onlineNames.add(p.name);
+            if (p.user_id) onlineIds.add(p.user_id);
           });
         });
-        setOnlineAdmins(onlineNames);
+        setOnlineAdmins(onlineIds);
+      })
+      .on('broadcast', { event: 'typing' }, ({ payload }: any) => {
+        if (!payload || payload.user_id === user.id) return;
+        
+        const { user_id, name, avatar_url } = payload;
+        
+        // Adicionar ao mapa de typing
+        setTypingAdmins(prev => {
+          const next = new Map(prev);
+          next.set(user_id, { name, avatar_url });
+          return next;
+        });
+        
+        // Limpar timeout anterior se existir
+        const existingTimeout = typingTimeoutsRef.current.get(user_id);
+        if (existingTimeout) clearTimeout(existingTimeout);
+        
+        // Remover apos 3 segundos sem atividade
+        const timeout = setTimeout(() => {
+          setTypingAdmins(prev => {
+            const next = new Map(prev);
+            next.delete(user_id);
+            return next;
+          });
+          typingTimeoutsRef.current.delete(user_id);
+        }, 3000);
+        typingTimeoutsRef.current.set(user_id, timeout);
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
@@ -265,8 +337,14 @@ export default function AdminChatPage() {
           });
         }
       });
+    
+    presenceChannelRef.current = presenceChannel;
 
     return () => {
+      presenceChannelRef.current = null;
+      // Limpar todos os timeouts
+      typingTimeoutsRef.current.forEach(t => clearTimeout(t));
+      typingTimeoutsRef.current.clear();
       supabase.removeChannel(presenceChannel);
     };
   }, [isAuthenticated, isAdmin, user, profile]);
@@ -305,22 +383,77 @@ export default function AdminChatPage() {
     return avatars;
   }, [messages]);
 
+  // Regex dinamica para mencoes (baseada nos membros carregados)
+  const mentionRegex = useMemo(() => {
+    const names = chatMembers
+      .filter(m => m.type === 'admin')
+      .map(m => m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      .join('|');
+    return new RegExp(`(@(?:eye|ia|ai${names ? '|' + names : ''}))`, 'gi');
+  }, [chatMembers]);
+
   // ===========================================
   // HANDLERS
   // ===========================================
 
+  // ═══ HELPERS PARA EXTRAIR FICHEIROS DE ZIP ═══
+  const isTextFile = (name: string, mime?: string): boolean => {
+    if (mime && ['text/plain', 'text/csv', 'text/html', 'text/css', 'text/javascript', 'application/json', 'application/xml'].includes(mime)) return true;
+    return /\.(txt|csv|json|xml|html|css|js|ts|py|md|log|yml|yaml|ini|cfg|env|sh|bat|sql)$/i.test(name);
+  };
+  
+  const isImageFile = (name: string, mime?: string): boolean => {
+    if (mime && mime.startsWith('image/')) return true;
+    return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name);
+  };
+  
+  const isZipFile = (name: string, mime?: string): boolean => {
+    if (mime && ['application/zip', 'application/x-zip-compressed'].includes(mime)) return true;
+    return /\.zip$/i.test(name);
+  };
+  
+  const isNonExtractableArchive = (name: string, mime?: string): boolean => {
+    if (mime && ['application/x-rar-compressed', 'application/x-7z-compressed', 'application/vnd.rar'].includes(mime)) return true;
+    return /\.(rar|7z)$/i.test(name);
+  };
+
+  const extractZipContents = async (file: File): Promise<{ images: { name: string; base64: string }[]; texts: { name: string; content: string }[] }> => {
+    const images: { name: string; base64: string }[] = [];
+    const texts: { name: string; content: string }[] = [];
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const entries = Object.values(zip.files).filter(f => !f.dir);
+      for (const entry of entries) {
+        if (isImageFile(entry.name)) {
+          const blob = await entry.async('blob');
+          const ext = entry.name.split('.').pop()?.toLowerCase() || 'png';
+          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/png';
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(new File([blob], entry.name, { type: mimeType }));
+          });
+          images.push({ name: entry.name, base64 });
+        } else if (isTextFile(entry.name)) {
+          const content = await entry.async('string');
+          texts.push({ name: entry.name, content });
+        }
+      }
+    } catch (e) {
+      console.warn('Nao foi possivel extrair ZIP:', e);
+    }
+    return { images, texts };
+  };
+
   // ═══ ENVIAR MENSAGEM ═══
   const handleSend = async () => {
     const hasText = newMessage.trim().length > 0;
-    const hasFile = !!pendingFile;
-    if ((!hasText && !hasFile) || isSending || !user) return;
+    const hasFiles = pendingFiles.length > 0;
+    if ((!hasText && !hasFiles) || isSending || !user) return;
 
     const messageText = newMessage.trim();
-    const isAiCall = hasText && (
-      messageText.toLowerCase().startsWith('@eye') || 
-      messageText.toLowerCase().startsWith('@ia') ||
-      messageText.toLowerCase().startsWith('@ai')
-    );
+    const isAiCall = hasText && /@(eye|ia|ai)\b/i.test(messageText);
 
     setNewMessage('');
     setShowMentions(false);
@@ -328,46 +461,59 @@ export default function AdminChatPage() {
     setError(null);
 
     try {
-      // Se tem ficheiro pendente, fazer upload primeiro
-      if (hasFile && pendingFile) {
-        const file = pendingFile.file;
-        const fileExt = file.name.split('.').pop();
-        const fileName = `chat/${user.id}-${Date.now()}.${fileExt}`;
-        const isImage = file.type.startsWith('image/');
+      // Guardar info dos ficheiros antes de limpar (para usar na chamada AI)
+      const savedFiles = [...pendingFiles];
+      const uploadedFilesData: { file: File; url: string }[] = [];
+      
+      // Se tem ficheiros pendentes, fazer upload de todos
+      if (hasFiles) {
+        for (let i = 0; i < savedFiles.length; i++) {
+          const pf = savedFiles[i];
+          const file = pf.file;
+          const fileExt = file.name.split('.').pop();
+          const fileName = `chat/${user.id}-${Date.now()}-${i}.${fileExt}`;
+          const isImage = file.type.startsWith('image/');
 
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, file, { cacheControl: '3600', upsert: true });
+          const { error: uploadError } = await supabase.storage
+            .from('avatars')
+            .upload(fileName, file, { cacheControl: '3600', upsert: true });
 
-        if (uploadError) throw uploadError;
+          if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage
-          .from('avatars')
-          .getPublicUrl(fileName);
+          const { data: { publicUrl } } = supabase.storage
+            .from('avatars')
+            .getPublicUrl(fileName);
 
-        await fetch(`${API_URL}/api/admin/chat/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender_id: user.id,
-            sender_name: profile?.display_name || user.email?.split('@')[0] || 'Admin',
-            sender_avatar: profile?.avatar_url || null,
-            message: hasText ? messageText : (isImage ? 'Enviou uma imagem' : `Enviou: ${file.name}`),
-            message_type: isImage ? 'image' : 'file',
-            file_url: publicUrl,
-            file_name: file.name,
-            file_size: file.size,
-          }),
-        });
+          uploadedFilesData.push({ file, url: publicUrl });
 
-        // Limpar preview
-        if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
-        setPendingFile(null);
+          // Enviar mensagem de chat para cada ficheiro
+          const fileLabel = savedFiles.length > 1 ? `(${i + 1}/${savedFiles.length}) ` : '';
+          await fetch(`${API_URL}/api/admin/chat/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sender_id: user.id,
+              sender_name: profile?.display_name || user.email?.split('@')[0] || 'Admin',
+              sender_avatar: profile?.avatar_url || null,
+              message: hasText && i === 0 ? messageText : (isImage ? `${fileLabel}Enviou uma imagem` : `${fileLabel}Enviou: ${file.name}`),
+              message_type: isImage ? 'image' : 'file',
+              file_url: publicUrl,
+              file_name: file.name,
+              file_size: file.size,
+            }),
+          });
+        }
+
+        // Limpar previews
+        for (const pf of savedFiles) {
+          if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
+        }
+        setPendingFiles([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
 
       // Se so tem texto (sem ficheiro), enviar mensagem normal
-      if (hasText && !hasFile) {
+      if (hasText && !hasFiles) {
         const msgData = {
           sender_id: user.id,
           sender_name: profile?.display_name || user.email?.split('@')[0] || 'Admin',
@@ -388,24 +534,82 @@ export default function AdminChatPage() {
       // Se e uma chamada a IA
       if (isAiCall && aiAvailable) {
         setIsAiThinking(true);
-        const aiMessage = messageText.replace(/^@(eye|ia|ai)\s*/i, '');
+        const aiMessage = messageText.replace(/@(eye|ia|ai)\b\s*/gi, '').trim();
+        
+        // Recolher imagens e ficheiros de TODOS os ficheiros enviados
+        const imageUrls: string[] = [];
+        const fileContents: { name: string; content: string }[] = [];
+        
+        // Processar todos os ficheiros uploaded
+        for (const uf of uploadedFilesData) {
+          const { file, url } = uf;
+          
+          if (file.type.startsWith('image/')) {
+            // Converter imagem para base64 data URL
+            try {
+              const base64DataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+              });
+              imageUrls.push(base64DataUrl);
+            } catch {
+              imageUrls.push(url);
+            }
+          } else if (isZipFile(file.name, file.type)) {
+            // Extrair conteudo de ZIP
+            const zipContents = await extractZipContents(file);
+            for (const img of zipContents.images) {
+              if (imageUrls.length < 4) imageUrls.push(img.base64);
+            }
+            for (const txt of zipContents.texts) {
+              fileContents.push({ name: `${file.name}/${txt.name}`, content: txt.content });
+            }
+            if (zipContents.images.length === 0 && zipContents.texts.length === 0) {
+              fileContents.push({ name: file.name, content: '[Arquivo ZIP vazio ou sem ficheiros de texto/imagem reconhecidos]' });
+            }
+          } else if (isNonExtractableArchive(file.name, file.type)) {
+            // RAR e 7z nao podem ser extraidos no browser
+            fileContents.push({ name: file.name, content: `[Ficheiro ${file.name.split('.').pop()?.toUpperCase()} - nao e possivel extrair no browser. Para a IA analisar o conteudo, envia como .zip ou envia os ficheiros separadamente.]` });
+          } else if (isTextFile(file.name, file.type)) {
+            try {
+              const textContent = await file.text();
+              fileContents.push({ name: file.name, content: textContent });
+            } catch {}
+          }
+        }
+        
+        // Verificar mensagens recentes por imagens (ultimas 5)
+        const recentMsgs = messages.slice(-5);
+        for (const m of recentMsgs) {
+          if (m.message_type === 'image' && m.file_url && !imageUrls.includes(m.file_url)) {
+            imageUrls.push(m.file_url);
+          }
+        }
         
         try {
           const aiResponse = await fetch(`${API_URL}/api/admin/chat/ai`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              message: aiMessage,
+              message: aiMessage || (imageUrls.length > 0 ? 'Analisa esta imagem.' : 'Analisa este ficheiro.'),
               sender_name: profile?.display_name || 'Admin',
               context: messages.slice(-10).map(m => ({
                 sender_name: m.sender_name,
                 message: m.message,
                 message_type: m.message_type,
               })),
+              image_urls: imageUrls.length > 0 ? imageUrls : undefined,
+              file_contents: fileContents.length > 0 ? fileContents : undefined,
             }),
           });
 
-          if (!aiResponse.ok) throw new Error('Erro na resposta da IA');
+          if (!aiResponse.ok) {
+            const errorData = await aiResponse.json().catch(() => null);
+            const detail = errorData?.detail || `HTTP ${aiResponse.status}`;
+            throw new Error(detail);
+          }
           const aiData = await aiResponse.json();
           
           await fetch(`${API_URL}/api/admin/chat/messages`, {
@@ -420,6 +624,8 @@ export default function AdminChatPage() {
             }),
           });
         } catch (aiErr: any) {
+          console.error('AI Error:', aiErr);
+          const errDetail = aiErr?.message ? ` (${aiErr.message.slice(0, 300)})` : '';
           await fetch(`${API_URL}/api/admin/chat/messages`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -427,7 +633,7 @@ export default function AdminChatPage() {
               sender_id: '00000000-0000-0000-0000-000000000000',
               sender_name: 'Eye AI',
               sender_avatar: null,
-              message: 'Desculpa, nao consegui processar o teu pedido. Tenta novamente.',
+              message: `⚠️ Desculpa, nao consegui processar o teu pedido.${errDetail}`,
               message_type: 'ai_response',
             }),
           });
@@ -444,26 +650,62 @@ export default function AdminChatPage() {
     }
   };
 
-  // ═══ SELECIONAR FICHEIRO (preview antes de enviar) ═══
+  // ═══ SELECIONAR FICHEIROS (preview antes de enviar) ═══
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    if (file.size > 10 * 1024 * 1024) {
-      setError('Ficheiro demasiado grande (max 10MB)');
-      return;
+    const newFiles: { file: File; previewUrl: string | null }[] = [];
+    let totalSize = pendingFiles.reduce((acc, pf) => acc + pf.file.size, 0);
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      totalSize += file.size;
+      
+      if (file.size > 10 * 1024 * 1024) {
+        setError(`${file.name} demasiado grande (max 10MB por ficheiro)`);
+        continue;
+      }
+      
+      if (totalSize > 25 * 1024 * 1024) {
+        setError('Limite total de 25MB excedido');
+        break;
+      }
+      
+      if (pendingFiles.length + newFiles.length >= 8) {
+        setError('Maximo de 8 ficheiros de uma vez');
+        break;
+      }
+      
+      const isImage = file.type.startsWith('image/');
+      const previewUrl = isImage ? URL.createObjectURL(file) : null;
+      newFiles.push({ file, previewUrl });
     }
-
-    const isImage = file.type.startsWith('image/');
-    const previewUrl = isImage ? URL.createObjectURL(file) : null;
-    setPendingFile({ file, previewUrl });
+    
+    if (newFiles.length > 0) {
+      setPendingFiles(prev => [...prev, ...newFiles]);
+    }
+    if (fileInputRef.current) fileInputRef.current.value = '';
     inputRef.current?.focus();
   };
 
   // ═══ CANCELAR FICHEIRO PENDENTE ═══
-  const handleCancelFile = () => {
-    if (pendingFile?.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
-    setPendingFile(null);
+  const handleCancelFile = (index?: number) => {
+    if (index !== undefined) {
+      // Remover ficheiro especifico
+      setPendingFiles(prev => {
+        const updated = [...prev];
+        if (updated[index]?.previewUrl) URL.revokeObjectURL(updated[index].previewUrl);
+        updated.splice(index, 1);
+        return updated;
+      });
+    } else {
+      // Remover todos
+      for (const pf of pendingFiles) {
+        if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl);
+      }
+      setPendingFiles([]);
+    }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -541,14 +783,14 @@ export default function AdminChatPage() {
     e.stopPropagation();
     const nameWithoutAt = mentionText.replace('@', '').trim();
     
-    const member = CHAT_MEMBERS.find(m => 
+    const member = chatMembers.find(m => 
       m.name.toLowerCase() === nameWithoutAt.toLowerCase() ||
       (m.type === 'ai' && ['eye', 'ia', 'ai'].includes(nameWithoutAt.toLowerCase()))
     );
     
     if (!member) return;
     
-    const avatarUrl = memberAvatars[member.name] || null;
+    const avatarUrl = member.avatar_url || memberAvatars[member.name] || null;
     const rect = (e.target as HTMLElement).getBoundingClientRect();
     let x = rect.left;
     let y = rect.top;
@@ -571,7 +813,7 @@ export default function AdminChatPage() {
   // ═══ ABRIR PERFIL A PARTIR DO SIDEBAR ═══
   const handleSidebarMemberClick = (member: MentionUser, e: React.MouseEvent) => {
     e.stopPropagation();
-    const avatarUrl = memberAvatars[member.name] || null;
+    const avatarUrl = member.avatar_url || memberAvatars[member.name] || null;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
     let x = rect.left - 290;
     let y = rect.top;
@@ -583,10 +825,43 @@ export default function AdminChatPage() {
     setMentionProfileCard({ visible: true, x, y, member, avatar: avatarUrl });
   };
 
+  // ═══ LIMPAR CHAT INTEIRO ═══
+  const handleClearChat = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/admin/chat/messages`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) throw new Error('Erro ao limpar chat');
+      setMessages([]);
+      setShowClearConfirm(false);
+    } catch (err) {
+      console.error('Erro ao limpar chat:', err);
+      setError('Erro ao limpar o chat');
+      setShowClearConfirm(false);
+    }
+  };
+
   // ═══ INPUT COM DETECAO DE MENCOES ═══
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
     setNewMessage(value);
+    
+    // Broadcast typing (throttled a cada 2s)
+    if (value.trim() && presenceChannelRef.current && user && profile) {
+      const now = Date.now();
+      if (now - lastTypingBroadcast.current > 2000) {
+        lastTypingBroadcast.current = now;
+        presenceChannelRef.current.send({
+          type: 'broadcast',
+          event: 'typing',
+          payload: {
+            user_id: user.id,
+            name: profile.display_name || user.email?.split('@')[0] || 'Admin',
+            avatar_url: profile.avatar_url || null,
+          },
+        });
+      }
+    }
     
     const cursorPos = e.target.selectionStart || 0;
     const textBeforeCursor = value.substring(0, cursorPos);
@@ -606,7 +881,7 @@ export default function AdminChatPage() {
   };
 
   // Membros filtrados pela pesquisa
-  const filteredMentions = CHAT_MEMBERS.filter(m => 
+  const filteredMentions = chatMembers.filter(m => 
     m.name.toLowerCase().includes(mentionSearch.toLowerCase())
   );
 
@@ -674,7 +949,7 @@ export default function AdminChatPage() {
 
   // ═══ RENDERIZAR TEXTO COM MENCOES DESTACADAS ═══
   const renderMessageText = (text: string) => {
-    const parts = text.split(MENTION_REGEX);
+    const parts = text.split(mentionRegex);
     
     if (parts.length <= 1) {
       return <p className="chat-msg-text">{text}</p>;
@@ -683,9 +958,9 @@ export default function AdminChatPage() {
     return (
       <p className="chat-msg-text">
         {parts.map((part, i) => {
-          if (MENTION_REGEX.test(part)) {
+          if (mentionRegex.test(part)) {
             // Reset regex lastIndex
-            MENTION_REGEX.lastIndex = 0;
+            mentionRegex.lastIndex = 0;
             return (
               <span 
                 key={i} 
@@ -754,9 +1029,14 @@ export default function AdminChatPage() {
             Chat Admin
           </h1>
         </div>
-        <button className="chat-hamburger-btn" onClick={() => setSidebarOpen(true)} title="Membros">
-          <i className="fa-solid fa-bars"></i>
-        </button>
+        <div className="chat-header-actions">
+          <button className="chat-trash-btn" onClick={() => setShowClearConfirm(true)} title="Limpar chat">
+            <i className="fa-solid fa-trash"></i>
+          </button>
+          <button className="chat-hamburger-btn" onClick={() => setSidebarOpen(true)} title="Membros">
+            <i className="fa-solid fa-bars"></i>
+          </button>
+        </div>
       </div>
 
       {/* Sidebar Membros */}
@@ -774,11 +1054,11 @@ export default function AdminChatPage() {
               </button>
             </div>
             <div className="sidebar-members">
-              {CHAT_MEMBERS.map((member) => {
-                const avatarUrl = memberAvatars[member.name];
+              {chatMembers.map((member) => {
+                const avatarUrl = member.avatar_url || memberAvatars[member.name];
                 return (
                   <button 
-                    key={member.name}
+                    key={member.id}
                     className="sidebar-member"
                     onClick={(e) => handleSidebarMemberClick(member, e)}
                   >
@@ -805,9 +1085,9 @@ export default function AdminChatPage() {
                         {aiAvailable ? 'Online' : 'Offline'}
                       </span>
                     ) : (
-                      <span className={`sidebar-ai-status ${onlineAdmins.has(member.name) ? 'online' : 'offline'}`}>
+                      <span className={`sidebar-ai-status ${onlineAdmins.has(member.id) ? 'online' : 'offline'}`}>
                         <span className="sidebar-ai-dot"></span>
-                        {onlineAdmins.has(member.name) ? 'Online' : 'Offline'}
+                        {onlineAdmins.has(member.id) ? 'Online' : 'Offline'}
                       </span>
                     )}
                   </button>
@@ -957,6 +1237,34 @@ export default function AdminChatPage() {
               );
             })}
             
+            {/* Indicadores de quem esta a escrever */}
+            {Array.from(typingAdmins.entries()).map(([uid, { name, avatar_url }]) => {
+              const memberAvatar = avatar_url || chatMembers.find(m => m.id === uid)?.avatar_url || memberAvatars[name];
+              return (
+                <div key={`typing-${uid}`} className="chat-msg with-avatar">
+                  <div className="chat-msg-avatar">
+                    {memberAvatar ? (
+                      <img src={memberAvatar} alt={name} />
+                    ) : (
+                      <i className="fa-solid fa-user-shield"></i>
+                    )}
+                  </div>
+                  <div className="chat-msg-content">
+                    <div className="chat-msg-header">
+                      <span className="chat-msg-name">{name}</span>
+                    </div>
+                    <div className="chat-msg-bubble thinking">
+                      <div className="typing-indicator">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            
             {/* Indicador IA a pensar */}
             {isAiThinking && (
               <div className="chat-msg ai with-avatar">
@@ -1068,9 +1376,9 @@ export default function AdminChatPage() {
                   <span className="profile-card-role">
                     <i className="fa-solid fa-shield-halved"></i> Administrador
                   </span>
-                  {memberEmails[mentionProfileCard.member.name] && (
+                  {mentionProfileCard.member.email && (
                     <span className="profile-card-detail">
-                      <i className="fa-solid fa-envelope"></i> {memberEmails[mentionProfileCard.member.name]}
+                      <i className="fa-solid fa-envelope"></i> {mentionProfileCard.member.email}
                     </span>
                   )}
                 </div>
@@ -1091,6 +1399,27 @@ export default function AdminChatPage() {
         </div>
       )}
 
+      {/* Modal de confirmacao para limpar chat */}
+      {showClearConfirm && (
+        <div className="chat-clear-overlay" onClick={() => setShowClearConfirm(false)}>
+          <div className="chat-clear-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="clear-modal-icon">
+              <i className="fa-solid fa-trash"></i>
+            </div>
+            <h3>Limpar todo o chat?</h3>
+            <p>Esta ação vai apagar todas as mensagens permanentemente. Não pode ser desfeita.</p>
+            <div className="clear-modal-actions">
+              <button className="clear-modal-cancel" onClick={() => setShowClearConfirm(false)}>
+                Cancelar
+              </button>
+              <button className="clear-modal-confirm" onClick={handleClearChat}>
+                <i className="fa-solid fa-trash"></i> Apagar tudo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Input area */}
       <div className="chat-input-area">
         <input
@@ -1098,7 +1427,8 @@ export default function AdminChatPage() {
           type="file"
           style={{ display: 'none' }}
           onChange={handleFileSelect}
-          accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rar"
+          accept="image/*,.pdf,.doc,.docx,.txt,.zip,.rar,.7z,.csv,.json,.xml,.html,.css,.js,.ts,.py,.md,.log,.yml,.yaml,.sql"
+          multiple
         />
         
         <button 
@@ -1111,28 +1441,44 @@ export default function AdminChatPage() {
         </button>
         
         <div className="chat-input-wrapper">
-          {/* Preview do ficheiro pendente */}
-          {pendingFile && (
-            <div className="chat-file-preview">
-              {pendingFile.previewUrl ? (
-                <img src={pendingFile.previewUrl} alt="Preview" className="file-preview-img" />
-              ) : (
-                <i className="fa-solid fa-file file-preview-icon"></i>
+          {/* Preview dos ficheiros pendentes */}
+          {pendingFiles.length > 0 && (
+            <div className="chat-files-preview">
+              {pendingFiles.length > 1 && (
+                <div className="files-preview-header">
+                  <span>{pendingFiles.length} ficheiros selecionados</span>
+                  <button className="files-preview-clear" onClick={() => handleCancelFile()} title="Remover todos">
+                    <i className="fa-solid fa-xmark"></i> Limpar todos
+                  </button>
+                </div>
               )}
-              <div className="file-preview-info">
-                <span className="file-preview-name">{pendingFile.file.name}</span>
-                <span className="file-preview-size">{formatFileSize(pendingFile.file.size)}</span>
+              <div className="files-preview-grid">
+                {pendingFiles.map((pf, idx) => (
+                  <div key={idx} className="chat-file-preview">
+                    {pf.previewUrl ? (
+                      <img src={pf.previewUrl} alt="Preview" className="file-preview-img" />
+                    ) : pf.file.name.match(/\.(zip|rar|7z)$/i) ? (
+                      <i className="fa-solid fa-file-zipper file-preview-icon"></i>
+                    ) : (
+                      <i className="fa-solid fa-file file-preview-icon"></i>
+                    )}
+                    <div className="file-preview-info">
+                      <span className="file-preview-name">{pf.file.name}</span>
+                      <span className="file-preview-size">{formatFileSize(pf.file.size)}</span>
+                    </div>
+                    <button className="file-preview-remove" onClick={() => handleCancelFile(idx)} title="Remover">
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                  </div>
+                ))}
               </div>
-              <button className="file-preview-remove" onClick={handleCancelFile} title="Remover">
-                <i className="fa-solid fa-xmark"></i>
-              </button>
             </div>
           )}
           {/* Popup de mencoes */}
           {showMentions && filteredMentions.length > 0 && (
             <div className="chat-mentions-popup">
               {filteredMentions.map((member, idx) => {
-                const avatarUrl = memberAvatars[member.name];
+                const avatarUrl = member.avatar_url || memberAvatars[member.name];
                 return (
                   <button
                     key={member.name}
@@ -1171,7 +1517,7 @@ export default function AdminChatPage() {
         <button 
           className="chat-input-btn send"
           onClick={handleSend}
-          disabled={isSending || (!newMessage.trim() && !pendingFile)}
+          disabled={isSending || (!newMessage.trim() && pendingFiles.length === 0)}
           title="Enviar"
         >
           {isSending ? (

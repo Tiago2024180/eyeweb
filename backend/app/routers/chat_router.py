@@ -65,6 +65,8 @@ class AIRequest(BaseModel):
     message: str
     sender_name: str
     context: Optional[List[Dict[str, Any]]] = None
+    image_urls: Optional[List[str]] = None
+    file_contents: Optional[List[Dict[str, str]]] = None  # [{"name": "file.txt", "content": "..."}]
 
 
 class AIResponse(BaseModel):
@@ -85,32 +87,123 @@ class ChatHistoryResponse(BaseModel):
 # CONFIGURACAO IA
 # ===========================================
 
-SYSTEM_PROMPT = """Tu es a Eye, a assistente de IA do Eye Web, uma plataforma de ciberseguranca.
+def build_system_prompt(sender_name: str, health_summary: str = "", has_images: bool = False, has_files: bool = False) -> str:
+    """Construir prompt de sistema dinamico com contexto do sender e estado dos servicos."""
+    
+    health_section = ""
+    if health_summary:
+        health_section = f"""\n\n=== ESTADO ATUAL DOS SERVICOS ===\n{health_summary}\n=== FIM DO ESTADO ===\n\nQuando te perguntarem sobre o estado dos servicos, usa esta informacao para dar uma resposta precisa e detalhada.\nSe algum servico estiver offline ou degradado, alerta o admin e sugere que verifiquem.\n"""
+    
+    # Capacidades de visao e ficheiros
+    vision_section = ""
+    if has_images:
+        vision_section = """\n\nIMPORTANTE - CAPACIDADE DE VISAO:
+Tu TENS capacidade de ver e analisar imagens. Consegues ver as imagens que os admins te enviam.
+Quando receberes uma imagem, descreve o que ves com detalhe.
+NUNCA digas que nao consegues ver imagens - tu CONSEGUES.
+Analisa a imagem e responde com base no que observas nela.\n"""
+    
+    files_section = ""
+    if has_files:
+        files_section = """\n\nIMPORTANTE - LEITURA DE FICHEIROS:
+O conteudo dos ficheiros enviados esta incluido na mensagem do utilizador entre marcadores === Conteudo do ficheiro ===.
+Tu CONSEGUES ler e analisar o conteudo desses ficheiros.
+Quando te pedirem para mostrar o codigo ou conteudo, mostra-o diretamente na tua resposta.
+NUNCA digas que nao consegues aceder a ficheiros - o conteudo JA esta na mensagem.\n"""
+    
+    return f"""Tu es a Eye, a assistente de IA do Eye Web, uma plataforma de ciberseguranca.
 Falas portugues de Portugal (nao brasileiro).
 Es inteligente, profissional mas com personalidade amigavel.
+Estas a falar com: {sender_name}
+
 Ajudas os administradores do Eye Web com:
 - Informacoes sobre o estado do site e servicos
 - Recomendacoes de seguranca
 - Analise de ameacas e vulnerabilidades
 - Sugestoes de melhorias para o projeto
 - Duvidas tecnicas sobre ciberseguranca, programacao, redes
+- Analise de imagens e ficheiros enviados pelos admins
 - Qualquer outra questao que os admins tenham
 
 Regras:
 - Responde sempre em portugues de Portugal
 - Se nao sabes algo, diz honestamente
 - Usa formatacao simples (sem markdown excessivo)
-- Se te perguntarem sobre o estado dos servicos, diz que podem verificar no Monitor de Saude
-- Se te perguntarem sobre trafego/ataques, diz que podem verificar no Monitor de Trafego
-- Trata os admins pelo nome quando possivel
-- Se nao souberes quem sao os admins, eles sao: Samuka, Okscuna, e Vanina Kollen
+- Trata os admins pelo nome quando possivel (estas a falar com {sender_name})
+- Os admins da equipa sao: Samuka, Okscuna, e Vanina Kollen
 - Es parte da equipa Eye Web
-"""
+- Quando te perguntarem sobre o estado dos servicos, se tiveres dados abaixo, usa-os para responder com precisao
+- Se te perguntarem sobre trafego/ataques, diz que podem verificar no Monitor de Trafego
+- Se receberes imagens, analisa-as e descreve o que ves
+- Se receberes conteudo de ficheiros na mensagem, analisa-o e responde sobre ele
+- NUNCA digas que nao consegues ver imagens ou ler ficheiros quando os recebes
+{vision_section}{files_section}{health_section}"""
+
+
+async def fetch_health_summary() -> str:
+    """Obter resumo do estado dos servicos para contexto da IA."""
+    try:
+        from .admin_router import health_check
+        result = await health_check()
+        
+        lines = [f"Estado geral: {result.overall_status}"]
+        lines.append(f"Timestamp: {result.timestamp}")
+        lines.append(f"Resumo: online={result.summary.get('online', 0)}, offline={result.summary.get('offline', 0)}, degradado={result.summary.get('degraded', 0)}")
+        lines.append("")
+        
+        for service in result.services:
+            status_label = {
+                "online": "OK",
+                "offline": "OFFLINE",
+                "degraded": "DEGRADADO",
+                "unknown": "DESCONHECIDO"
+            }.get(service.status, service.status)
+            
+            line = f"- {service.name}: {status_label}"
+            if service.response_time_ms is not None:
+                line += f" ({service.response_time_ms}ms)"
+            if service.message:
+                line += f" - {service.message}"
+            lines.append(line)
+        
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Nao foi possivel obter o estado dos servicos: {str(e)}"
 
 
 # ===========================================
 # ENDPOINTS
 # ===========================================
+
+@router.get("/members")
+async def get_chat_members():
+    """
+    Obter lista de membros admin do chat.
+    Usa SERVICE_KEY para ultrapassar RLS e retornar todos os admins.
+    """
+    try:
+        sb = get_supabase_client()
+        result = sb.table("profiles") \
+            .select("id, display_name, avatar_url, email, role") \
+            .eq("role", "admin") \
+            .execute()
+        
+        members = []
+        for p in (result.data or []):
+            members.append({
+                "id": p.get("id", ""),
+                "name": p.get("display_name") or p.get("email", "Admin").split("@")[0],
+                "avatar_url": p.get("avatar_url"),
+                "email": p.get("email", ""),
+            })
+        
+        return {"members": members}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao obter membros: {str(e)}"
+        )
+
 
 @router.get("/messages", response_model=ChatHistoryResponse)
 async def get_chat_messages(limit: int = 50, offset: int = 0):
@@ -198,6 +291,21 @@ async def delete_message(message_id: str):
         )
 
 
+@router.delete("/messages")
+async def clear_all_messages():
+    """Apagar todas as mensagens do chat."""
+    try:
+        sb = get_supabase_client()
+        # Apagar todas as mensagens (gt created_at 2000 = todas)
+        sb.table("admin_chat_messages").delete().gt("created_at", "2000-01-01").execute()
+        return {"success": True, "message": "Chat limpo com sucesso"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao limpar chat: {str(e)}"
+        )
+
+
 @router.patch("/messages/{message_id}")
 async def edit_message(message_id: str, req: EditMessageRequest):
     """Editar o texto de uma mensagem do chat."""
@@ -232,6 +340,13 @@ async def chat_with_ai(req: AIRequest):
     """
     groq_key = os.getenv("GROQ_CHAT_API_KEY", "")
     groq_model = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+    groq_vision_model = os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    
+    # Detetar se ha imagens para usar modelo de visao
+    has_images = bool(req.image_urls and len(req.image_urls) > 0)
+    active_model = groq_vision_model if has_images else groq_model
+    
+    print(f"[AI] Modelo: {active_model} | Imagens: {len(req.image_urls) if req.image_urls else 0} | Ficheiros: {len(req.file_contents) if req.file_contents else 0}")
     
     if not groq_key:
         raise HTTPException(
@@ -239,8 +354,17 @@ async def chat_with_ai(req: AIRequest):
             detail="GROQ_CHAT_API_KEY nao configurada"
         )
     
+    # Obter estado dos servicos para contexto da IA
+    health_summary = await fetch_health_summary()
+    
+    # Detetar se ha ficheiros
+    has_files = bool(req.file_contents and len(req.file_contents) > 0)
+    
+    # Construir prompt dinamico com contexto do sender, saude e capacidades
+    system_prompt = build_system_prompt(req.sender_name, health_summary, has_images=has_images, has_files=has_files)
+    
     # Construir historico de contexto (ultimas mensagens)
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": system_prompt}]
     
     if req.context:
         for ctx_msg in req.context[-10:]:  # Ultimas 10 mensagens para contexto
@@ -253,8 +377,30 @@ async def chat_with_ai(req: AIRequest):
             else:
                 messages.append({"role": "assistant", "content": content})
     
-    # Mensagem atual
-    messages.append({"role": "user", "content": f"[{req.sender_name}]: {req.message}"})
+    # Mensagem atual - construir conteudo multimodal se necessario
+    user_text = f"[{req.sender_name}]: {req.message}"
+    
+    # Adicionar conteudo de ficheiros ao texto
+    if req.file_contents:
+        for fc in req.file_contents:
+            fname = fc.get("name", "ficheiro")
+            fcontent = fc.get("content", "")
+            if fcontent:
+                user_text += f"\n\n=== Conteudo do ficheiro: {fname} ===\n{fcontent[:8000]}\n=== Fim do ficheiro ==="
+    
+    if has_images:
+        # Formato multimodal para modelo de visao
+        content_parts: List[Dict[str, Any]] = [{"type": "text", "text": user_text}]
+        for img_url in req.image_urls[:4]:  # Max 4 imagens
+            url_type = "base64" if img_url.startswith("data:") else "url"
+            print(f"[AI] Imagem tipo: {url_type} | Tamanho: {len(img_url)} chars")
+            content_parts.append({
+                "type": "image_url",
+                "image_url": {"url": img_url}
+            })
+        messages.append({"role": "user", "content": content_parts})
+    else:
+        messages.append({"role": "user", "content": user_text})
     
     try:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -265,24 +411,30 @@ async def chat_with_ai(req: AIRequest):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": groq_model,
+                    "model": active_model,
                     "messages": messages,
                     "temperature": 0.7,
-                    "max_tokens": 2048,
+                    **({
+                        "max_completion_tokens": 2048,
+                    } if has_images else {
+                        "max_tokens": 2048,
+                    }),
                     "top_p": 0.9,
                 },
             )
             
             if response.status_code != 200:
                 error_text = response.text
+                print(f"[AI] ERRO Groq ({response.status_code}): {error_text[:500]}")
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Erro da API Groq ({response.status_code}): {error_text[:200]}"
+                    detail=f"Erro da API Groq ({response.status_code}): {error_text[:300]}"
                 )
             
             data = response.json()
             ai_message = data["choices"][0]["message"]["content"]
             model_used = data.get("model", groq_model)
+            print(f"[AI] Resposta OK | Modelo: {model_used} | Tokens: {data.get('usage', {})}")
             
             return AIResponse(
                 response=ai_message,
