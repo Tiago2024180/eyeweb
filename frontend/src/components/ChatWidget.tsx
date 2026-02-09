@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import './ChatWidget.css';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -12,6 +13,15 @@ interface ChatMsg {
 }
 
 export default function ChatWidget() {
+  const pathname = usePathname();
+
+  // Nunca mostrar no painel admin
+  if (pathname?.startsWith('/admin')) return null;
+
+  return <ChatWidgetInner />;
+}
+
+function ChatWidgetInner() {
   const [isVisible, setIsVisible] = useState(false); // Só mostra depois do splash
   const [isOpen, setIsOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false); // Para animação de fade-out
