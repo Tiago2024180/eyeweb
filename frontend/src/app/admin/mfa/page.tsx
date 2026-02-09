@@ -327,8 +327,11 @@ export default function AdminMFAPage() {
       // Marcar MFA como verificado (válido até fazer logout explícito)
       localStorage.setItem('mfa_verified', 'true');
 
-      // Redirecionar para admin (usar window.location para refresh completo)
-      window.location.href = '/admin';
+      // Aguardar que o AuthContext processe o SIGNED_IN event
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Redirecionar para admin (router.push mantém React state + sessão Supabase)
+      router.push('/admin');
 
     } catch (err: any) {
       console.error('MFA verification error:', err);

@@ -150,7 +150,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let authResolved = false; // Flag para evitar processar 2x
     
     // Resolver auth state (chamado por quem chegar primeiro)
-    const resolveAuth = async (session: any, source: string) => {
+    // CRITICAL: Set loading=false IMEDIATAMENTE, carregar profile em background.
+    // Se bloquearmos em loadProfile, loading fica preso 8-15s no Vercel.
+    const resolveAuth = (session: any, source: string) => {
       if (authResolved || !isMounted) return;
       authResolved = true;
       
@@ -160,15 +162,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(session?.user ?? null);
       userIdRef.current = session?.user?.id ?? null;
       
-      if (session?.user) {
-        try {
-          await loadProfile(session.user.id);
-        } catch (err) {
-          console.error('Error loading profile:', err);
-        }
-      }
-      
+      // CRITICAL: loading=false PRIMEIRO — NÃO esperar pelo profile
       if (isMounted) setLoading(false);
+      
+      // Profile carrega em background (não bloqueia loading)
+      if (session?.user) {
+        loadProfile(session.user.id).catch(err => {
+          console.error('Error loading profile:', err);
+        });
+      }
     };
     
     // Safety timeout - garantir que loading NUNCA fica preso
@@ -197,7 +199,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         
-        await resolveAuth(session, 'getSession');
+        resolveAuth(session, 'getSession');
       } catch (err) {
         console.error('getSession exception:', err);
         if (!authResolved && isMounted) {
@@ -218,7 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // INITIAL_SESSION: sessão do localStorage (pode ser instantâneo ou lento)
         if (event === 'INITIAL_SESSION') {
-          await resolveAuth(session, 'INITIAL_SESSION');
+          resolveAuth(session, 'INITIAL_SESSION');
           return;
         }
         
@@ -239,24 +241,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
         
-        // SIGNED_IN do mesmo user (BroadcastChannel sync entre tabs)
-        // Não recarregar perfil - evitar re-render que bloqueia botões
-        if (event === 'SIGNED_IN' && session?.user?.id === userIdRef.current) {
+        // SIGNED_IN: usar resolveAuth se ainda não resolvido (resolve loading instantaneamente)
+        if (event === 'SIGNED_IN') {
+          // Primeiro SIGNED_IN (login real) — resolver loading + carregar profile em bg
+          if (!authResolved) {
+            resolveAuth(session, 'SIGNED_IN');
+            return;
+          }
+          // Mesmo user (BroadcastChannel sync entre tabs) — só atualizar session
+          if (session?.user?.id === userIdRef.current) {
+            setSession(session);
+            return;
+          }
+          // User diferente — atualizar tudo
           setSession(session);
+          setUser(session?.user ?? null);
+          userIdRef.current = session?.user?.id ?? null;
+          setLoading(false);
+          if (session?.user) {
+            loadProfile(session.user.id).catch(err => console.error(err));
+          }
           return;
         }
         
-        // Outros eventos (SIGNED_IN novo user, USER_UPDATED, etc.)
+        // Outros eventos (USER_UPDATED, etc.)
         setSession(session);
         setUser(session?.user ?? null);
         userIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
-          try {
-            await loadProfile(session.user.id);
-          } catch (err) {
-            console.error('Error loading profile:', err);
-          }
+          loadProfile(session.user.id).catch(err => console.error(err));
         }
         
         if (isMounted) setLoading(false);
