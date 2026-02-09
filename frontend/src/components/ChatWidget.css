@@ -10,7 +10,7 @@
 /* ═══ CONTAINER ═══ */
 .ew-widget {
   position: fixed;
-  bottom: 55px;
+  bottom: 80px;
   right: 20px;
   z-index: 999999;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
