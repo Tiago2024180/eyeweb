@@ -129,11 +129,13 @@ export async function middleware(req: NextRequest) {
   }
 
   // Se está autenticado e vai para login/signup, redirecionar para perfil
+  // NOTA: Admin redirect vai para /admin (não /admin/mfa) porque o client-side
+  // do admin/page.tsx já verifica MFA via localStorage. Redirecionar direto para
+  // /admin/mfa causava loop quando cookies e localStorage estavam desincronizados.
   if (user && (pathname === '/login' || pathname === '/signup')) {
     const isAdmin = user.email ? await isAdminEmail(user.email) : false;
-    // Admin vai direto para MFA se necessário
     if (isAdmin && pathname === '/login') {
-      return NextResponse.redirect(new URL('/admin/mfa', req.url));
+      return NextResponse.redirect(new URL('/admin', req.url));
     }
     return NextResponse.redirect(new URL('/perfil', req.url));
   }

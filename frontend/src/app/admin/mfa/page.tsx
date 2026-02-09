@@ -15,45 +15,64 @@ export default function AdminMFAPage() {
   const [banTimeLeft, setBanTimeLeft] = useState<string | null>(null);
   const [pendingLogin, setPendingLogin] = useState<{ email: string; password: string } | null>(null);
   const [timeLeft, setTimeLeft] = useState(120); // 2 minutos em segundos
+  const [authError, setAuthError] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   // Verificar se há login pendente OU se já está autenticado
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
+
     const checkAuth = async () => {
-      const email = sessionStorage.getItem('admin_pending_email');
-      const password = sessionStorage.getItem('admin_pending_password');
-      
-      // Se tem login pendente, usar esse
-      if (email && password) {
-        setPendingLogin({ email, password });
-      } else {
-        // Verificar se já está autenticado
-        const { data: { user } } = await supabase.auth.getUser();
+      try {
+        const email = sessionStorage.getItem('admin_pending_email');
+        const password = sessionStorage.getItem('admin_pending_password');
         
-        if (!user) {
-          // Sem login pendente e sem sessão, voltar para login
-          window.location.href = '/login';
-          return;
+        // Se tem login pendente, usar esse
+        if (email && password) {
+          if (isMounted) setPendingLogin({ email, password });
+        } else {
+          // Verificar se já está autenticado (com timeout de 8s)
+          const userPromise = supabase.auth.getUser();
+          const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Timeout ao verificar sessão')), 8000);
+          });
+          
+          const { data: { user } } = await Promise.race([userPromise, timeoutPromise]);
+          
+          if (!user) {
+            // Sem login pendente e sem sessão, voltar para login
+            if (isMounted) window.location.href = '/login';
+            return;
+          }
+          
+          // Já está autenticado, só precisa verificar MFA
+          if (isMounted) setPendingLogin({ email: user.email || '', password: '' });
         }
         
-        // Já está autenticado, só precisa verificar MFA
-        // Não precisa de pending login
-        setPendingLogin({ email: user.email || '', password: '' });
-      }
-      
-      // DEV: Limpar bans anteriores de testes (em produção remover isto)
-      // Os strikes antigos dos testes podem bloquear novos admins
-      localStorage.removeItem('admin_mfa_ban');
-      localStorage.removeItem('admin_mfa_strikes');
-      
-      // Carregar strikes
-      const savedStrikes = localStorage.getItem('admin_mfa_strikes');
-      if (savedStrikes) {
-        setStrikes(parseInt(savedStrikes, 10));
+        // DEV: Limpar bans anteriores de testes (em produção remover isto)
+        localStorage.removeItem('admin_mfa_ban');
+        localStorage.removeItem('admin_mfa_strikes');
+        
+        // Carregar strikes
+        const savedStrikes = localStorage.getItem('admin_mfa_strikes');
+        if (savedStrikes && isMounted) {
+          setStrikes(parseInt(savedStrikes, 10));
+        }
+      } catch (err) {
+        console.error('❌ MFA checkAuth error:', err);
+        if (isMounted) {
+          setAuthError('Erro ao verificar sessão. Tenta novamente.');
+        }
       }
     };
     
     checkAuth();
+
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, []);
 
   // Atualizar tempo restante do ban
@@ -337,8 +356,31 @@ export default function AdminMFAPage() {
     return (
       <div className="mfa-container">
         <div className="mfa-loading">
-          <i className="fa-solid fa-spinner fa-spin"></i>
-          <span>A carregar...</span>
+          {authError ? (
+            <>
+              <i className="fa-solid fa-circle-exclamation" style={{ color: '#ef4444', fontSize: '1.5rem' }}></i>
+              <span style={{ color: '#ef4444' }}>{authError}</span>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  style={{ padding: '8px 16px', background: '#dc2626', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                >
+                  Tentar novamente
+                </button>
+                <button 
+                  onClick={() => window.location.href = '/login'} 
+                  style={{ padding: '8px 16px', background: '#333', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                >
+                  Voltar ao login
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <i className="fa-solid fa-spinner fa-spin"></i>
+              <span>A carregar...</span>
+            </>
+          )}
         </div>
       </div>
     );

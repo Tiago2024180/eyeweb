@@ -145,6 +145,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let isMounted = true;
     
+    // Safety timeout - garantir que loading NUNCA fica preso infinitamente
+    const safetyTimeout = setTimeout(() => {
+      if (isMounted) {
+        console.error('⚠️ AuthContext safety timeout: loading stuck for 15s, forcing false');
+        setLoading(false);
+      }
+    }, 15000);
+    
     // Obter sessão inicial
     const initAuth = async () => {
       try {
@@ -244,6 +252,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       isMounted = false;
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, []);

@@ -34,6 +34,20 @@ export default function AdminDashboardPage() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const [loadingTimeout, setLoadingTimeout] = useState(false);
+
+  // Timeout para loading geral - não ficar preso para sempre
+  useEffect(() => {
+    if (loading) {
+      const timer = setTimeout(() => {
+        console.error('🔴 Loading timeout! Auth context stuck.');
+        setLoadingTimeout(true);
+      }, 10000); // 10 segundos
+      
+      return () => clearTimeout(timer);
+    }
+  }, [loading]);
+
   // Timeout para profile - não ficar preso para sempre
   useEffect(() => {
     if (!loading && !profile && isAuthenticated) {
@@ -331,6 +345,22 @@ export default function AdminDashboardPage() {
 
   // Loading state - mostrar loading enquanto verifica auth
   if (loading) {
+    if (loadingTimeout) {
+      return (
+        <div className="admin-loading">
+          <div className="spinner"></div>
+          <p>Erro ao carregar sessão.</p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+            <a href="/admin" style={{ padding: '8px 16px', background: '#dc2626', color: 'white', borderRadius: '6px', textDecoration: 'none' }}>
+              Tentar novamente
+            </a>
+            <a href="/login" style={{ padding: '8px 16px', background: '#333', color: 'white', borderRadius: '6px', textDecoration: 'none' }}>
+              Fazer login
+            </a>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="admin-loading">
         <div className="spinner"></div>
