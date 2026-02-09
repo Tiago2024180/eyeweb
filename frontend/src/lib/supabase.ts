@@ -127,13 +127,14 @@ export async function sendLoginMagicLink(email: string) {
 }
 
 /**
- * Login com Google OAuth
+ * Login/Signup com Google OAuth
+ * @param flow - 'login' ou 'signup' para distinguir no callback
  */
-export async function signInWithGoogle() {
+export async function signInWithGoogle(flow: 'login' | 'signup' = 'login') {
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${window.location.origin}/auth/callback?flow=${flow}`,
     },
   });
   

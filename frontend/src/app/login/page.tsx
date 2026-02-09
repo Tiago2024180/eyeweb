@@ -166,6 +166,10 @@ function LoginContent() {
       setError('Administradores não podem usar login via Google. Por favor, usa as credenciais manuais.');
     } else if (errorParam === 'auth_failed') {
       setError('Erro na autenticação. Por favor, tenta novamente.');
+    } else if (errorParam === 'no_account') {
+      setError('Esta conta Google não tem registo no EyeWeb. Cria uma conta primeiro.');
+    } else if (errorParam === 'account_exists') {
+      setError('Esta conta Google já tem registo. Faz login em vez de criar conta.');
     }
   }, [searchParams]);
 

@@ -97,9 +97,8 @@ export default function CompleteSignupPage() {
     setIsSaving(true);
 
     try {
-      // Atualizar o utilizador com a password (fire-and-forget)
-      // Não usar await porque pode bloquear indefinidamente
-      supabase.auth.updateUser({
+      // Atualizar o utilizador com a password
+      const { error: updateError } = await supabase.auth.updateUser({
         password: password,
         data: {
           display_name: displayName,
@@ -107,10 +106,12 @@ export default function CompleteSignupPage() {
         },
       });
 
-      // Redirecionar após pequeno delay para o update ser processado
-      setTimeout(() => {
-        window.location.replace('/');
-      }, 300);
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Password definida com sucesso — redirecionar para home
+      window.location.replace('/');
       
     } catch (err: unknown) {
       console.error('Complete signup error:', err);

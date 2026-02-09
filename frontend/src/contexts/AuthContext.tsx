@@ -27,6 +27,7 @@ interface AuthContextType {
   // Funções de auth
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  signupWithGoogle: () => Promise<void>;
   signup: (email: string, password: string, fullName?: string) => Promise<void>;
   logout: () => Promise<void>;
   
@@ -83,14 +84,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const userProfile = await getProfile(userId);
       
-      // Se o perfil não existe, criar um perfil básico
+      // Se o perfil não existe, verificar se o signup foi completado
       if (!userProfile) {
-        console.warn('Profile not found - creating basic profile');
-        
         // Obter dados do utilizador atual
         const { data: { user: currentUser } } = await supabase.auth.getUser();
         
         if (currentUser) {
+          // GUARD: Só auto-criar perfil se o utilizador completou o signup
+          // Google-only users sem password NÃO devem ter perfil auto-criado
+          const hasCompletedSignup = 
+            currentUser.user_metadata?.has_password === true ||
+            currentUser.identities?.some((i: any) => i.provider === 'email');
+          
+          if (!hasCompletedSignup) {
+            console.warn('User has not completed signup - skipping profile creation');
+            return;
+          }
+          
+          console.warn('Profile not found - creating basic profile');
+          
           // Verificar se é admin (async)
           const userIsAdmin = await isAdminEmail(currentUser.email || '');
           
@@ -300,6 +312,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           filter: `id=eq.${user.id}`,
         },
         async () => {
+          // Se estamos na página de callback, não interferir com redirects
+          if (typeof window !== 'undefined' && window.location.pathname.includes('/auth/callback')) {
+            console.log('Profile deleted - but on callback page, skipping redirect');
+            return;
+          }
           console.log('Profile deleted - logging out');
           await supabaseSignOut();
           setUser(null);
@@ -337,8 +354,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const loginWithGoogle = async () => {
-    // O redirect é handled pelo Supabase
-    await signInWithGoogle();
+    // O redirect é handled pelo Supabase — flow='login'
+    await signInWithGoogle('login');
+  };
+
+  const signupWithGoogle = async () => {
+    // O redirect é handled pelo Supabase — flow='signup'
+    await signInWithGoogle('signup');
   };
 
   const signup = async (email: string, password: string, fullName?: string) => {
@@ -382,6 +404,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // VALORES DO CONTEXT
   // ===========================================
 
+  // Um user só é "autenticado" se completou o signup.
+  // Google-only users sem password NÃO são considerados autenticados
+  // (precisam da sessão técnica para completar o signup, mas não devem
+  // ver UI de "logged in" como navbar com nome/avatar).
+  const hasCompletedSignup = !!user && (
+    user.user_metadata?.has_password === true ||
+    user.identities?.some((i: any) => i.provider === 'email') ||
+    false
+  );
+
   const value: AuthContextType = {
     user,
     profile,
@@ -389,9 +421,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loading,
     login,
     loginWithGoogle,
+    signupWithGoogle,
     signup,
     logout,
-    isAuthenticated: !!user,
+    isAuthenticated: hasCompletedSignup,
     isAdmin: profile?.role === 'admin',
     refreshProfile,
   };

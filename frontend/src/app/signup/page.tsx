@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase, isAdminEmail } from '@/lib/supabase';
@@ -89,7 +89,9 @@ interface PasswordStrength {
 
 export default function SignupPage() {
   const router = useRouter();
-  const { loginWithGoogle, isAuthenticated, loading } = useAuth();
+  const searchParams = useSearchParams();
+  const { signupWithGoogle, isAuthenticated, loading } = useAuth();
+  const fromGoogle = searchParams.get('from') === 'google';
   
   // Form state
   const [step, setStep] = useState<'form' | 'verify'>('form');
@@ -184,9 +186,28 @@ export default function SignupPage() {
   // Redirecionar se já autenticado
   useEffect(() => {
     if (isAuthenticated && !loading) {
-      router.push('/perfil');
+      router.push('/');
     }
   }, [isAuthenticated, loading, router]);
+
+  // Verificar avisos/erros na URL
+  useEffect(() => {
+    const errorParam = searchParams.get('error');
+    const noticeParam = searchParams.get('notice');
+    // Pré-preencher com dados vindos do Google (passados como URL params)
+    const nameParam = searchParams.get('name');
+    const emailParam = searchParams.get('email');
+    if (nameParam && !displayName) setDisplayName(nameParam);
+    if (emailParam && !email) setEmail(emailParam);
+
+    if (errorParam === 'no_account' || errorParam === 'no_signup') {
+      setError('Esta conta Google não tem registo no EyeWeb. Cria uma conta primeiro preenchendo os dados abaixo.');
+    } else if (noticeParam === 'google_signup') {
+      setError('Preenche os dados abaixo para completar o teu registo.');
+    } else if (errorParam === 'account_exists') {
+      setError('Este e-mail já tem uma conta criada. Faz login em vez de criar conta.');
+    }
+  }, [searchParams]);
 
   // Detectar se é email de admin (async)
   useEffect(() => {
@@ -260,7 +281,67 @@ export default function SignupPage() {
       return;
     }
 
-    // Verificar se temos token do captcha (frontend-only)
+    // ─── GOOGLE SIGNUP: email já verificado → criar conta direto ───
+    if (fromGoogle) {
+      // Captcha ainda é necessário para proteção contra bots
+      if (!captchaToken) {
+        setError('Por favor, completa a verificação de segurança.');
+        return;
+      }
+
+      setIsLoading(true);
+      turnstileRef.current?.reset();
+      setCaptchaToken(null);
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+        const resp = await fetch(`${apiUrl}/api/v1/auth/register-google-user`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email,
+            password,
+            display_name: displayName || email.split('@')[0],
+          }),
+        });
+
+        const result = await resp.json();
+
+        if (!resp.ok) {
+          if (resp.status === 409) {
+            // Email já existe
+            setShowEmailExistsError(true);
+            setIsLoading(false);
+            return;
+          }
+          throw new Error(result.detail || 'Erro ao criar conta.');
+        }
+
+        // Conta criada com email confirmado → fazer login automático
+        const { error: loginError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (loginError) throw loginError;
+
+        // Saltar a animação do olho e ir para home
+        sessionStorage.setItem('eyeweb_intro_seen', 'true');
+        window.location.href = '/';
+        return;
+      } catch (err: any) {
+        console.error('Google signup error:', err);
+        if (err.message?.includes('already') || err.message?.includes('registada')) {
+          setShowEmailExistsError(true);
+        } else {
+          setError(err.message || 'Erro ao criar conta. Tenta novamente.');
+        }
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // ─── SIGNUP NORMAL: verificação por email ───
     if (!captchaToken) {
       setError('Por favor, completa a verificação de segurança.');
       return;
@@ -305,12 +386,13 @@ export default function SignupPage() {
         setResendCooldown(60);
       } else if (data.session) {
         // Signup automático (email confirmation desativado)
-        router.push('/perfil');
+        sessionStorage.setItem('eyeweb_intro_seen', 'true');
+        window.location.href = '/';
       }
     } catch (err: any) {
       console.error('Signup error:', err);
-      if (err.message.includes('already registered')) {
-        setError('Este email já está registado. Tenta fazer login.');
+      if (err.message.includes('already registered') || err.message.includes('already been registered')) {
+        setShowEmailExistsError(true);
       } else {
         setError(err.message || 'Erro ao criar conta. Tenta novamente.');
       }
@@ -371,8 +453,11 @@ export default function SignupPage() {
       // Aguardar um pouco para a sessão ser estabelecida
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Sucesso - redireciona para perfil
-      window.location.href = '/perfil';
+      // Saltar a animação do olho (EyeIntro) ao redirecionar
+      sessionStorage.setItem('eyeweb_intro_seen', 'true');
+
+      // Sucesso - redireciona para a página principal
+      window.location.href = '/';
     } catch (err: any) {
       console.error('Verification error:', err);
       setError('Código inválido ou expirado. Tenta novamente.');
@@ -423,7 +508,7 @@ export default function SignupPage() {
     setIsLoading(true);
 
     try {
-      await loginWithGoogle();
+      await signupWithGoogle();
     } catch (err: any) {
       console.error('Google signup error:', err);
       setError(err.message || 'Erro ao registar com Google.');
@@ -606,6 +691,21 @@ export default function SignupPage() {
           </div>
         )}
 
+        {/* Error/Warning Message (topo do formulário) */}
+        <AnimatePresence>
+          {error && (
+            <motion.div 
+              className="auth-error"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              <i className="fa-solid fa-circle-exclamation"></i>
+              <span>{error}</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="auth-form">
           {/* Display Name */}
@@ -619,7 +719,7 @@ export default function SignupPage() {
                 value={displayName}
                 onChange={(e) => handleDisplayNameChange(e.target.value)}
                 placeholder="O teu nome"
-                autoComplete="name"
+                autoComplete="off"
                 maxLength={30}
                 required
               />
@@ -648,7 +748,7 @@ export default function SignupPage() {
                 }}
                 placeholder="email@exemplo.com"
                 required
-                autoComplete="email"
+                autoComplete="off"
               />
             </div>
           </div>
@@ -716,14 +816,6 @@ export default function SignupPage() {
             </div>
           </div>
 
-          {/* Error */}
-          {error && (
-            <div className="auth-error">
-              <i className="fa-solid fa-circle-exclamation"></i>
-              <span>{error}</span>
-            </div>
-          )}
-
           {/* Email Already Exists Error */}
           {showEmailExistsError && (
             <div className="email-exists-error">
@@ -737,44 +829,44 @@ export default function SignupPage() {
 
           {/* Turnstile Captcha */}
           <div className="turnstile-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', margin: '1rem 0', minHeight: '70px', position: 'relative' }}>
-            {captchaLoading && (
-              <div className="turnstile-skeleton">
-                <div className="turnstile-skeleton-icon">
-                  <i className="fa-solid fa-shield-halved fa-beat-fade"></i>
+              {captchaLoading && (
+                <div className="turnstile-skeleton">
+                  <div className="turnstile-skeleton-icon">
+                    <i className="fa-solid fa-shield-halved fa-beat-fade"></i>
+                  </div>
+                  <span>A verificar segurança...</span>
                 </div>
-                <span>A verificar segurança...</span>
-              </div>
-            )}
-            <div style={{ opacity: captchaLoading ? 0 : 1, transition: 'opacity 0.3s' }}>
-              {turnstileSiteKey ? (
-                <Turnstile
-                  ref={turnstileRef}
-                  siteKey={turnstileSiteKey}
-                  onSuccess={(token) => {
-                    setCaptchaToken(token);
-                    setCaptchaLoading(false);
-                  }}
-                  onError={() => {
-                    setCaptchaToken(null);
-                    setCaptchaLoading(false);
-                  }}
-                  onExpire={() => {
-                    setCaptchaToken(null);
-                    turnstileRef.current?.reset();
-                  }}
-                  onWidgetLoad={() => setCaptchaLoading(false)}
-                  options={{
-                    theme: 'dark',
-                    size: 'normal',
-                    appearance: 'always',
-                    retry: 'auto',
-                  }}
-                />
-              ) : (
-                <p style={{ color: 'red', fontSize: '12px' }}>Turnstile Site Key não configurada</p>
               )}
+              <div style={{ opacity: captchaLoading ? 0 : 1, transition: 'opacity 0.3s' }}>
+                {turnstileSiteKey ? (
+                  <Turnstile
+                    ref={turnstileRef}
+                    siteKey={turnstileSiteKey}
+                    onSuccess={(token) => {
+                      setCaptchaToken(token);
+                      setCaptchaLoading(false);
+                    }}
+                    onError={() => {
+                      setCaptchaToken(null);
+                      setCaptchaLoading(false);
+                    }}
+                    onExpire={() => {
+                      setCaptchaToken(null);
+                      turnstileRef.current?.reset();
+                    }}
+                    onWidgetLoad={() => setCaptchaLoading(false)}
+                    options={{
+                      theme: 'dark',
+                      size: 'normal',
+                      appearance: 'always',
+                      retry: 'auto',
+                    }}
+                  />
+                ) : (
+                  <p style={{ color: 'red', fontSize: '12px' }}>Turnstile Site Key não configurada</p>
+                )}
+              </div>
             </div>
-          </div>
 
           {/* Submit */}
           <button 
@@ -794,7 +886,7 @@ export default function SignupPage() {
         </form>
 
         {/* Divider */}
-        {!isAdminSignup && (
+        {!isAdminSignup && !fromGoogle && (
           <>
             <div className="auth-divider">
               <span>ou</span>
