@@ -33,7 +33,7 @@ export default function EmailManagerPage() {
   // Verificar MFA da sessão
   const isMfaVerified = () => {
     if (typeof window === 'undefined') return false;
-    return sessionStorage.getItem('mfa_verified') === 'true';
+    return localStorage.getItem('mfa_verified') === 'true';
   };
   
   // Redirecionar se não autenticado, não admin, ou MFA não verificado

@@ -18,7 +18,7 @@ export default function AdminDashboardPage() {
   // MFA é válido para toda a sessão (até fazer logout)
   const getInitialMfaState = () => {
     if (typeof window === 'undefined') return false;
-    return sessionStorage.getItem('mfa_verified') === 'true';
+    return localStorage.getItem('mfa_verified') === 'true';
   };
   
   const [mfaVerified, setMfaVerified] = useState(getInitialMfaState);
@@ -109,7 +109,7 @@ export default function AdminDashboardPage() {
   }, [isAuthenticated, isAdmin, profile, loading, mfaVerified]);
 
   const handleLogout = async () => {
-    sessionStorage.removeItem('mfa_verified');
+    localStorage.removeItem('mfa_verified');
     await logout();
     router.push('/login');
   };

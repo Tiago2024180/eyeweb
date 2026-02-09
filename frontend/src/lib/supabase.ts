@@ -164,6 +164,10 @@ export async function signUpWithEmail(email: string, password: string, fullName?
  */
 export async function signOut() {
   try {
+    // Limpar MFA antes de terminar sessão
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('mfa_verified');
+    }
     const { error } = await supabase.auth.signOut({ scope: 'global' });
     if (error) {
       console.error('SignOut error:', error);
@@ -195,18 +199,47 @@ export async function getCurrentUser() {
  * Obter perfil do utilizador
  */
 export async function getProfile(userId: string): Promise<Profile | null> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-  
-  if (error) {
-    console.error('Error fetching profile:', error);
-    return null;
+  // Retry uma vez para erros transitórios (AbortError, JWT expirado, rede)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+      
+      if (error) {
+        // PGRST116 = "no rows found" = perfil genuinamente não existe
+        if (error.code === 'PGRST116') {
+          return null;
+        }
+        
+        // Outros erros (JWT expirado, rede, etc.) - retry após 1s
+        if (attempt === 0) {
+          console.warn('Error fetching profile, retrying in 1s...', error.code || error.message || error);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        
+        console.error('Error fetching profile after retry:', error);
+        return null;
+      }
+      
+      return data;
+    } catch (err) {
+      // Handle AbortError e outras exceções
+      if (attempt === 0) {
+        console.warn('Exception fetching profile, retrying in 1s...', err);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        continue;
+      }
+      
+      console.error('Error fetching profile after retry:', err);
+      return null;
+    }
   }
   
-  return data;
+  return null;
 }
 
 /**

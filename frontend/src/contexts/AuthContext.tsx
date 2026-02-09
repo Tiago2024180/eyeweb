@@ -150,10 +150,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error) {
           console.error('Error getting session:', error);
           
-          // Se o erro for de refresh token inválido, limpar a sessão
+          // Se o erro for de refresh token inválido, limpar APENAS a sessão local
+          // NÃO usar scope: 'global' que mata sessões noutros dispositivos
           if (error.message?.includes('Refresh Token') || error.message?.includes('Invalid')) {
-            console.warn('Invalid session detected, clearing auth state...');
-            await supabase.auth.signOut();
+            console.warn('Invalid session detected, clearing local auth state...');
+            await supabase.auth.signOut({ scope: 'local' });
           }
           
           if (isMounted) setLoading(false);
@@ -173,11 +174,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch (error: any) {
         console.error('Auth init error:', error);
         
-        // Tratamento para erros de refresh token
+        // Tratamento para erros de refresh token - limpar só localmente
         if (error?.message?.includes('Refresh Token') || error?.name === 'AuthApiError') {
-          console.warn('Auth error detected, clearing session...');
+          console.warn('Auth error detected, clearing local session...');
           try {
-            await supabase.auth.signOut();
+            await supabase.auth.signOut({ scope: 'local' });
           } catch {
             // Ignorar erros ao fazer signOut
           }
@@ -190,11 +191,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     initAuth();
 
     // Listener para mudanças de auth
+    // NOTA: Ignorar INITIAL_SESSION e TOKEN_REFRESHED para evitar loads desnecessários
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event:', event);
         
         if (!isMounted) return;
+        
+        // initAuth() já trata da sessão inicial - evitar carregar perfil 2x
+        if (event === 'INITIAL_SESSION') return;
+        
+        // TOKEN_REFRESHED só renova o JWT - os dados do perfil não mudam
+        // Evitar fetch desnecessário que causa AbortError em concurrent requests
+        if (event === 'TOKEN_REFRESHED') {
+          setSession(session);
+          setUser(session?.user ?? null);
+          return;
+        }
         
         setSession(session);
         setUser(session?.user ?? null);
@@ -290,6 +303,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      // Limpar MFA verificado (segurança: limpar antes de tudo)
+      localStorage.removeItem('mfa_verified');
       await supabaseSignOut();
       setUser(null);
       setProfile(null);
@@ -299,6 +314,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Logout error:', error);
       // Mesmo com erro, limpar estado local e redirecionar
+      localStorage.removeItem('mfa_verified');
       setUser(null);
       setProfile(null);
       setSession(null);

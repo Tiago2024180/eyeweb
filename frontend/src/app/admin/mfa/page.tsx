@@ -319,8 +319,8 @@ export default function AdminMFAPage() {
       sessionStorage.removeItem('admin_pending_password');
       localStorage.removeItem('admin_mfa_strikes');
 
-      // Marcar MFA como verificado (válido até fazer logout)
-      sessionStorage.setItem('mfa_verified', 'true');
+      // Marcar MFA como verificado (válido até fazer logout explícito)
+      localStorage.setItem('mfa_verified', 'true');
 
       // DEBUG: Verificar localStorage antes do redirect
       console.log('🔐 Verificação final localStorage:', Object.keys(localStorage).filter(k => k.includes('sb-')));

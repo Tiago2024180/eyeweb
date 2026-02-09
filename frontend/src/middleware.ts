@@ -72,19 +72,21 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const pathname = req.nextUrl.pathname;
 
   // Verificar se é uma rota pública de admin (como MFA)
+  // IMPORTANTE: verificar ANTES de getUser() para evitar chamada de rede desnecessária
+  // As rotas de admin são verificadas inteiramente no client-side (localStorage)
   const isPublicAdminRoute = publicAdminRoutes.some(route => pathname.startsWith(route));
   
   // Permitir acesso a rotas públicas de admin sem autenticação
   if (isPublicAdminRoute) {
     return res;
   }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   // Verificar se é uma rota protegida
   const isProtectedRoute = protectedRoutes.some(route => pathname.startsWith(route));
