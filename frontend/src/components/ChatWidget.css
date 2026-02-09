@@ -10,10 +10,22 @@
 /* ═══ CONTAINER ═══ */
 .ew-widget {
   position: fixed;
-  bottom: 90px;
+  bottom: 55px;
   right: 20px;
   z-index: 999999;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  animation: ewFadeIn 0.5s ease forwards;
+}
+
+@keyframes ewFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ═══ LAUNCHER (botao flutuante) ═══ */

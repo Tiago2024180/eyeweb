@@ -29,19 +29,20 @@ export default function ChatWidget() {
 
   // ═══ VISIBILIDADE — Só aparece depois do splash screen ═══
   useEffect(() => {
-    // Se já viu a intro, mostra imediatamente
+    // Se já viu a intro (refresh/navegação), mostra imediatamente
     if (sessionStorage.getItem(INTRO_KEY) === 'true') {
       setIsVisible(true);
       return;
     }
 
-    // Senão, poll até a intro ser vista (quando o utilizador clica no olho)
+    // Senão, poll até o utilizador clicar no olho
+    // Depois esperar 2s (1.5s animação do olho + 0.5s fade-in do conteúdo)
     const interval = setInterval(() => {
       if (sessionStorage.getItem(INTRO_KEY) === 'true') {
-        setIsVisible(true);
         clearInterval(interval);
+        setTimeout(() => setIsVisible(true), 2000);
       }
-    }, 500);
+    }, 300);
 
     return () => clearInterval(interval);
   }, []);
