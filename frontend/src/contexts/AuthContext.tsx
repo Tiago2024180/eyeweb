@@ -142,76 +142,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Inicializar auth state
+  // NOTA: Usa onAuthStateChange com INITIAL_SESSION como fonte primária.
+  // INITIAL_SESSION lê do localStorage (instantâneo), ao contrário de getSession()
+  // que faz chamada de rede e pode ser lento/pendurar em produção.
   useEffect(() => {
     let isMounted = true;
     
     // Safety timeout - garantir que loading NUNCA fica preso infinitamente
     const safetyTimeout = setTimeout(() => {
       if (isMounted) {
-        console.error('⚠️ AuthContext safety timeout: loading stuck for 15s, forcing false');
+        console.error('⚠️ AuthContext safety timeout: loading stuck for 12s, forcing false');
         setLoading(false);
       }
-    }, 15000);
-    
-    // Obter sessão inicial
-    const initAuth = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          
-          // Se o erro for de refresh token inválido, limpar APENAS a sessão local
-          // NÃO usar scope: 'global' que mata sessões noutros dispositivos
-          if (error.message?.includes('Refresh Token') || error.message?.includes('Invalid')) {
-            console.warn('Invalid session detected, clearing local auth state...');
-            await supabase.auth.signOut({ scope: 'local' });
-          }
-          
-          if (isMounted) setLoading(false);
-          return;
-        }
-        
-        if (isMounted) {
-          setSession(session);
-          setUser(session?.user ?? null);
-          userIdRef.current = session?.user?.id ?? null;
-          
-          if (session?.user) {
-            await loadProfile(session.user.id);
-          }
-          
-          setLoading(false);
-        }
-      } catch (error: any) {
-        console.error('Auth init error:', error);
-        
-        // Tratamento para erros de refresh token - limpar só localmente
-        if (error?.message?.includes('Refresh Token') || error?.name === 'AuthApiError') {
-          console.warn('Auth error detected, clearing local session...');
-          try {
-            await supabase.auth.signOut({ scope: 'local' });
-          } catch {
-            // Ignorar erros ao fazer signOut
-          }
-        }
-        
-        if (isMounted) setLoading(false);
-      }
-    };
-    
-    initAuth();
+    }, 12000);
 
-    // Listener para mudanças de auth
-    // NOTA: Ignorar eventos que não mudam estado real para evitar re-renders desnecessários
+    // Listener para mudanças de auth (INCLUI INITIAL_SESSION)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event:', event);
         
         if (!isMounted) return;
         
-        // initAuth() já trata da sessão inicial - evitar carregar perfil 2x
-        if (event === 'INITIAL_SESSION') return;
+        // INITIAL_SESSION: sessão carregada do localStorage (instantâneo)
+        // É o primeiro evento que dispara — usa-lo para resolver loading rapidamente
+        if (event === 'INITIAL_SESSION') {
+          setSession(session);
+          setUser(session?.user ?? null);
+          userIdRef.current = session?.user?.id ?? null;
+          
+          if (session?.user) {
+            try {
+              await loadProfile(session.user.id);
+            } catch (err) {
+              console.error('Error loading profile on INITIAL_SESSION:', err);
+            }
+          }
+          
+          if (isMounted) setLoading(false);
+          return;
+        }
         
         // TOKEN_REFRESHED só renova o JWT - os dados do perfil não mudam
         if (event === 'TOKEN_REFRESHED') {
@@ -243,10 +212,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userIdRef.current = session?.user?.id ?? null;
         
         if (session?.user) {
-          await loadProfile(session.user.id);
+          try {
+            await loadProfile(session.user.id);
+          } catch (err) {
+            console.error('Error loading profile:', err);
+          }
         }
         
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     );
 
