@@ -607,7 +607,7 @@ function MainMenu({ onNavigate, onRouteNavigate }: MainMenuProps) {
 
         <div 
           className="admin-card card-chat" 
-          onClick={() => onNavigate('chat')}
+          onClick={() => onRouteNavigate('/admin/chat')}
         >
           <div className="admin-card-icon">
             <i className="fa-solid fa-comments"></i>

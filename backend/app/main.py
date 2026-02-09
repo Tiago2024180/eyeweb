@@ -27,6 +27,7 @@ from .routers.password_router import router as password_router
 from .routers.url_router import router as url_router
 from .routers.auth_router import router as auth_router
 from .routers.admin_router import router as admin_router
+from .routers.chat_router import router as chat_router
 from .services.breach_service import get_breach_service
 
 # ===========================================
@@ -171,6 +172,12 @@ app.include_router(
 # Router de Admin (MFA TOTP)
 app.include_router(
     admin_router,
+    prefix="/api"
+)
+
+# Router de Chat Admin (mensagens + IA)
+app.include_router(
+    chat_router,
     prefix="/api"
 )
 

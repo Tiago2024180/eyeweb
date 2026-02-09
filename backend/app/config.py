@@ -117,11 +117,18 @@ class Settings(BaseSettings):
     SUPABASE_SERVICE_KEY: str = ""
     
     # ===========================================
-    # GROQ (AI Analysis)
+    # GROQ (AI Analysis - URL Checker)
     # ===========================================
     
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    
+    # ===========================================
+    # GROQ (AI Chat Admin)
+    # ===========================================
+    
+    GROQ_CHAT_API_KEY: str = ""
+    GROQ_CHAT_MODEL: str = "llama-3.3-70b-versatile"
     
     # ===========================================
     # URL SCANNING SERVICES

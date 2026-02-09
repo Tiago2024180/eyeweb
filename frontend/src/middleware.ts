@@ -16,7 +16,7 @@ const protectedRoutes: string[] = [];
 const adminRoutes: string[] = [];
 
 // Rotas públicas dentro de admin (não requerem autenticação prévia)
-const publicAdminRoutes = ['/admin/mfa', '/admin'];
+const publicAdminRoutes = ['/admin/mfa', '/admin', '/admin/chat'];
 
 // Verificar se Supabase está configurado
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
