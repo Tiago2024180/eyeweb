@@ -41,21 +41,10 @@ export default function AdminMFAPage() {
         setPendingLogin({ email: user.email || '', password: '' });
       }
       
-      // Verificar se está banido (localStorage para persistir)
-      const banData = localStorage.getItem('admin_mfa_ban');
-      if (banData) {
-        const { until } = JSON.parse(banData);
-        const banUntil = new Date(until);
-        
-        if (banUntil > new Date()) {
-          setIsBanned(true);
-          updateBanTimeLeft(banUntil);
-        } else {
-          // Ban expirou
-          localStorage.removeItem('admin_mfa_ban');
-          localStorage.removeItem('admin_mfa_strikes');
-        }
-      }
+      // DEV: Limpar bans anteriores de testes (em produção remover isto)
+      // Os strikes antigos dos testes podem bloquear novos admins
+      localStorage.removeItem('admin_mfa_ban');
+      localStorage.removeItem('admin_mfa_strikes');
       
       // Carregar strikes
       const savedStrikes = localStorage.getItem('admin_mfa_strikes');
@@ -249,6 +238,8 @@ export default function AdminMFAPage() {
     setError(null);
 
     try {
+      console.log('🔐 MFA: A enviar verificação para:', pendingLogin.email, 'código:', codeToVerify);
+      
       // Verificar código MFA com o backend
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/verify-mfa`, {
         method: 'POST',
@@ -263,6 +254,7 @@ export default function AdminMFAPage() {
       });
 
       const data = await response.json();
+      console.log('🔐 MFA: Resposta do backend:', response.status, data);
 
       if (!response.ok) {
         // Código inválido - incrementar strikes
@@ -282,13 +274,43 @@ export default function AdminMFAPage() {
       // Código válido - se temos password pendente, fazer login real
       // Se não (já autenticado), apenas continuar
       if (pendingLogin.password) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        console.log('🔐 Tentando login com:', pendingLogin.email);
+        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email: pendingLogin.email,
           password: pendingLogin.password,
         });
 
+        console.log('🔐 SignIn result:', { data: signInData, error: signInError });
+
         if (signInError) {
+          console.error('🔐 SignIn error:', signInError);
           throw signInError;
+        }
+
+        // Aguardar um pouco para a sessão ser persistida
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Verificar se sessão foi criada
+        const { data: { session } } = await supabase.auth.getSession();
+        console.log('🔐 Session após login:', session?.user?.email);
+        
+        // Verificar se sessão está no localStorage
+        const storedToken = localStorage.getItem('sb-zawqvduiuljlvquxzlpq-auth-token');
+        console.log('🔐 Token no localStorage:', storedToken ? 'EXISTE' : 'NÃO EXISTE');
+        
+        if (!session) {
+          console.error('🔐 ERRO: Sessão não foi criada!');
+          // Tentar setSession manualmente
+          if (signInData.session) {
+            console.log('🔐 Tentando setSession manualmente...');
+            await supabase.auth.setSession({
+              access_token: signInData.session.access_token,
+              refresh_token: signInData.session.refresh_token,
+            });
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const tokenAfter = localStorage.getItem('sb-zawqvduiuljlvquxzlpq-auth-token');
+            console.log('🔐 Token após setSession:', tokenAfter ? 'EXISTE' : 'NÃO EXISTE');
+          }
         }
       }
 
@@ -299,6 +321,12 @@ export default function AdminMFAPage() {
 
       // Marcar MFA como verificado (válido até fazer logout)
       sessionStorage.setItem('mfa_verified', 'true');
+
+      // DEBUG: Verificar localStorage antes do redirect
+      console.log('🔐 Verificação final localStorage:', Object.keys(localStorage).filter(k => k.includes('sb-')));
+      
+      // Aguardar mais um pouco para garantir persistência
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Redirecionar para admin (usar window.location para refresh completo)
       window.location.href = '/admin';

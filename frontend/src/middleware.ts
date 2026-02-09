@@ -2,14 +2,17 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-// Rotas que requerem autenticação
-const protectedRoutes = ['/perfil', '/admin'];
+// Rotas que requerem autenticação (apenas perfil - admin é verificado client-side)
+const protectedRoutes = ['/perfil'];
 
-// Rotas que requerem ser admin
-const adminRoutes = ['/admin'];
+// Rotas de admin são verificadas inteiramente no client-side
+// porque a sessão Supabase é guardada em localStorage (não cookies)
+// e o middleware (server-side) não consegue ver localStorage.
+// O admin/page.tsx já verifica: isAuthenticated, isAdmin, mfaVerified
+const adminRoutes: string[] = [];
 
 // Rotas públicas dentro de admin (não requerem autenticação prévia)
-const publicAdminRoutes = ['/admin/mfa'];
+const publicAdminRoutes = ['/admin/mfa', '/admin'];
 
 // Verificar se Supabase está configurado
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';

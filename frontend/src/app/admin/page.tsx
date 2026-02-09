@@ -70,29 +70,42 @@ export default function AdminDashboardPage() {
 
   // Redirecionar se não autenticado ou não admin
   useEffect(() => {
+    console.log('🔴 Admin useEffect:', { loading, isAuthenticated, profile, isAdmin, mfaVerified });
+    
     // Esperar que loading termine
-    if (loading) return;
+    if (loading) {
+      console.log('🔴 Ainda a carregar...');
+      return;
+    }
     
     // Se não autenticado, ir para login
     if (!isAuthenticated) {
+      console.log('🔴 Não autenticado, a ir para login');
       window.location.href = '/login';
       return;
     }
     
     // Se profile ainda não carregou, esperar
-    if (!profile) return;
+    if (!profile) {
+      console.log('🔴 Profile não carregou ainda, a esperar...');
+      return;
+    }
     
     // Se não é admin, ir para perfil
     if (!isAdmin) {
-      window.location.href = '/perfil';
+      console.log('🔴 Não é admin, a ir para perfil');
+      window.location.href = '/perfil?error=access_denied';
       return;
     }
     
     // Se MFA não verificado, ir para MFA
     if (!mfaVerified) {
+      console.log('🔴 MFA não verificado, a ir para MFA');
       window.location.href = '/admin/mfa';
       return;
     }
+    
+    console.log('🔴 Tudo OK! Mostrando painel admin');
   }, [isAuthenticated, isAdmin, profile, loading, mfaVerified]);
 
   const handleLogout = async () => {

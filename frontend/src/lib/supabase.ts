@@ -3,7 +3,7 @@
  * Configuração do cliente Supabase para autenticação e base de dados
  */
 
-import { createBrowserClient } from '@supabase/ssr';
+import { createClient } from '@supabase/supabase-js';
 import CryptoJS from 'crypto-js';
 
 // Variáveis de ambiente
@@ -17,9 +17,8 @@ if (!isSupabaseConfigured) {
   console.warn('⚠️ Supabase credentials not configured. Auth features will be disabled.');
 }
 
-// Criar cliente Supabase apenas se estiver configurado
-// Durante o build, usamos URLs placeholder para evitar erros
-export const supabase = createBrowserClient(
+// Criar cliente Supabase com createClient padrão (melhor persistência)
+export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',
   {
@@ -27,10 +26,8 @@ export const supabase = createBrowserClient(
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      // Desativar o lock que causa o AbortError
-      lock: async (name: string, acquireTimeout: number, fn: () => Promise<any>) => {
-        return await fn();
-      },
+      storageKey: 'sb-zawqvduiuljlvquxzlpq-auth-token',
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
   }
 );

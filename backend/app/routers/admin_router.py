@@ -4,6 +4,7 @@ Eye Web Backend — Admin MFA Router
 ===========================================
 Endpoints para verificação MFA do administrador.
 Usa TOTP com HMAC-SHA256 sincronizado com o programa local.
+Cada admin tem o seu próprio secret MFA guardado na DB.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -17,6 +18,7 @@ import os
 import asyncio
 import httpx
 from pathlib import Path
+from supabase import create_client, Client
 
 # Carregar .env automaticamente
 from dotenv import load_dotenv
@@ -30,22 +32,32 @@ settings = get_settings()
 
 
 # ===========================================
+# SUPABASE CLIENT
+# ===========================================
+
+def get_supabase() -> Client:
+    """Retorna cliente Supabase configurado."""
+    url = os.getenv("SUPABASE_URL", "")
+    key = os.getenv("SUPABASE_SERVICE_KEY", "")
+    if not url or not key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Supabase não configurado."
+        )
+    return create_client(url, key)
+
+
+# ===========================================
 # CONFIGURAÇÃO TOTP
 # ===========================================
 
-# Secret partilhado com o programa local (eyeweb_auth.py)
-# DEVE SER IGUAL em ambos os lados!
-# ATENÇÃO: Definir via variável de ambiente ADMIN_MFA_SECRET
-TOTP_SECRET = os.getenv("ADMIN_MFA_SECRET", "")
-
-# Configuração TOTP
+# Configuração TOTP (igual para todos os admins)
 TOTP_INTERVAL = 30  # segundos
-TOTP_DIGITS = 6     # dígitos (igual ao Supabase OTP)
+TOTP_DIGITS = 6     # dígitos
 TOTP_WINDOW = 4     # Aceitar códigos dos últimos 4 intervalos (2 minutos)
 
-# Admin email hash (verificação extra)
-# ATENÇÃO: Definir via variável de ambiente ADMIN_EMAIL_HASH
-ADMIN_EMAIL_HASH = os.getenv("ADMIN_EMAIL_HASH", "")
+# Fallback secret global (apenas se admin não tiver secret na DB)
+FALLBACK_TOTP_SECRET = os.getenv("ADMIN_MFA_SECRET", "")
 
 
 # ===========================================
@@ -67,7 +79,7 @@ class VerifyMFAResponse(BaseModel):
 # FUNÇÕES TOTP
 # ===========================================
 
-def generate_totp(secret: str, digits: int = 10, interval: int = 30, offset: int = 0) -> str:
+def generate_totp(secret: str, digits: int = 6, interval: int = 30, offset: int = 0) -> str:
     """
     Gera um código TOTP usando HMAC-SHA256.
     
@@ -101,7 +113,7 @@ def generate_totp(secret: str, digits: int = 10, interval: int = 30, offset: int
     return str(code).zfill(digits)
 
 
-def verify_totp(code: str, secret: str = TOTP_SECRET, window: int = TOTP_WINDOW) -> bool:
+def verify_totp(code: str, secret: str, window: int = TOTP_WINDOW) -> bool:
     """
     Verifica se o código TOTP é válido.
     
@@ -109,12 +121,15 @@ def verify_totp(code: str, secret: str = TOTP_SECRET, window: int = TOTP_WINDOW)
     
     Args:
         code: Código a verificar
-        secret: Secret partilhado
-        window: Número de períodos adjacentes a aceitar (default: 1)
+        secret: Secret do admin específico
+        window: Número de períodos adjacentes a aceitar
     
     Returns:
         True se o código é válido
     """
+    if not secret:
+        return False
+    
     # Verificar código atual e adjacentes (para compensar dessincronização)
     for offset in range(-window, window + 1):
         expected_code = generate_totp(secret, TOTP_DIGITS, TOTP_INTERVAL, offset)
@@ -124,10 +139,68 @@ def verify_totp(code: str, secret: str = TOTP_SECRET, window: int = TOTP_WINDOW)
     return False
 
 
+async def get_admin_from_db(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Busca um admin na tabela profiles pelo email.
+    
+    Returns:
+        Dict com dados do admin ou None se não encontrado/não é admin
+    """
+    try:
+        supabase = get_supabase()
+        result = supabase.table("profiles").select("*").eq("email", email.lower().strip()).eq("role", "admin").execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"❌ Erro ao buscar admin: {e}")
+        return None
+
+
+async def get_admin_mfa_secret(admin_id: str) -> Optional[str]:
+    """
+    Busca o secret MFA de um admin específico na tabela admin_mfa_secrets.
+    
+    Args:
+        admin_id: UUID do admin (da tabela profiles)
+    
+    Returns:
+        Secret MFA ou None se não configurado
+    """
+    try:
+        supabase = get_supabase()
+        result = supabase.table("admin_mfa_secrets").select("secret_key").eq("admin_id", admin_id).eq("is_configured", True).execute()
+        
+        if result.data and len(result.data) > 0:
+            return result.data[0].get("secret_key")
+        return None
+    except Exception as e:
+        print(f"❌ Erro ao buscar MFA secret: {e}")
+        return None
+
+
 def is_admin_email(email: str) -> bool:
-    """Verifica se o email é do admin via hash."""
-    email_hash = hashlib.sha256(email.lower().strip().encode()).hexdigest()
-    return email_hash == ADMIN_EMAIL_HASH
+    """
+    Verifica se o email é de um admin via consulta à DB.
+    DEPRECATED: Usar get_admin_from_db() para verificação completa.
+    """
+    # Mantido para compatibilidade, mas agora verifica na DB
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Se já há um loop, criar task
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(lambda: asyncio.run(get_admin_from_db(email)))
+                admin = future.result()
+        else:
+            admin = asyncio.run(get_admin_from_db(email))
+        return admin is not None
+    except Exception as e:
+        print(f"❌ Erro em is_admin_email: {e}")
+        return False
 
 
 # ===========================================
@@ -140,36 +213,66 @@ async def verify_admin_mfa(request: VerifyMFARequest):
     Verifica o código MFA do administrador.
     
     O código é gerado pelo programa local (eyeweb_auth.py) usando TOTP.
+    Cada admin tem o seu próprio secret MFA guardado na DB.
     
-    - Código de 10 dígitos
+    - Código de 6 dígitos
     - Válido por 30 segundos
-    - Aceita 1 período de margem (dessincronização)
+    - Aceita 4 períodos de margem (2 minutos)
     """
     email = request.email.lower().strip()
     code = request.code.strip()
     
-    # Verificar se é email de admin
-    if not is_admin_email(email):
+    # 1. Verificar se é admin na DB (role='admin')
+    admin = await get_admin_from_db(email)
+    if not admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Este email não tem permissões de administrador."
         )
     
-    # Validar formato do código
+    admin_id = admin.get("id")
+    admin_name = admin.get("display_name", email)
+    
+    print(f"🔐 MFA Verify - Admin: {admin_name} ({email})")
+    
+    # 2. Validar formato do código
     if len(code) != TOTP_DIGITS or not code.isdigit():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"O código deve ter {TOTP_DIGITS} dígitos numéricos."
         )
     
-    # Verificar código TOTP (válido por 2 minutos)
-    if not verify_totp(code, TOTP_SECRET, TOTP_WINDOW):
+    # 3. Buscar secret MFA individual do admin
+    admin_secret = await get_admin_mfa_secret(admin_id)
+    
+    print(f"🔑 Secret da DB: {admin_secret[:10] if admin_secret else 'None'}...")
+    
+    # Se não tem secret individual, usar fallback global
+    if not admin_secret:
+        print(f"⚠️  Admin {admin_name} não tem secret MFA configurado. Usando fallback global.")
+        admin_secret = FALLBACK_TOTP_SECRET
+        print(f"🔑 Fallback secret: {admin_secret[:10] if admin_secret else 'None'}...")
+    
+    if not admin_secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="MFA não configurado para este administrador. Contacte o suporte."
+        )
+    
+    # 4. Verificar código TOTP
+    print(f"🔢 Código recebido: {code}")
+    expected = generate_totp(admin_secret, TOTP_DIGITS, TOTP_INTERVAL, 0)
+    print(f"🔢 Código esperado (offset 0): {expected}")
+    
+    if not verify_totp(code, admin_secret, TOTP_WINDOW):
+        # TODO: Registar tentativa falhada na tabela mfa_attempts
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Código MFA inválido ou expirado."
         )
     
-    # Código válido!
+    # 5. Código válido!
+    print(f"✅ MFA verificado com sucesso para {admin_name}")
     return VerifyMFAResponse(
         success=True,
         message="Código MFA verificado com sucesso!"
@@ -181,7 +284,7 @@ async def test_totp():
     """
     Endpoint de teste para verificar geração TOTP (apenas em desenvolvimento).
     
-    Retorna o código TOTP atual para debug.
+    Retorna o código TOTP atual usando o fallback secret.
     """
     if not settings.DEBUG and settings.ENVIRONMENT != "development":
         raise HTTPException(
@@ -189,14 +292,15 @@ async def test_totp():
             detail="Este endpoint só está disponível em desenvolvimento."
         )
     
-    current_code = generate_totp(TOTP_SECRET, TOTP_DIGITS, TOTP_INTERVAL)
+    current_code = generate_totp(FALLBACK_TOTP_SECRET, TOTP_DIGITS, TOTP_INTERVAL)
     time_remaining = TOTP_INTERVAL - (int(time.time()) % TOTP_INTERVAL)
     
     return {
         "current_code": current_code,
         "time_remaining": time_remaining,
         "interval": TOTP_INTERVAL,
-        "digits": TOTP_DIGITS
+        "digits": TOTP_DIGITS,
+        "note": "Este código usa o fallback secret global. Cada admin deve ter o seu próprio secret."
     }
 
 

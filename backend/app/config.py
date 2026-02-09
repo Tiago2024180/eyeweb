@@ -146,7 +146,9 @@ class Settings(BaseSettings):
     # ===========================================
     
     # Hash SHA-256 do email admin (para não expor email no código)
-    ADMIN_EMAIL_HASH: str = ""
+    # Suporta múltiplos admins separados por vírgula
+    ADMIN_EMAIL_HASH: str = ""  # Deprecated - usar ADMIN_EMAIL_HASHES
+    ADMIN_EMAIL_HASHES: str = ""  # Múltiplos hashes separados por vírgula
     
     # Secret TOTP para MFA (gerado com pyotp.random_base32())
     MFA_SECRET: str = ""
