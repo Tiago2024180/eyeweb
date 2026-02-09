@@ -54,8 +54,8 @@
 
 /* ═══ CHAT BOX ═══ */
 .ew-box {
-  width: 350px;
-  height: 500px;
+  width: 300px;
+  height: 400px;
   background: #161b22;
   border: 1px solid #30363d;
   border-radius: 15px;
@@ -66,6 +66,12 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  transition: width 0.3s ease, height 0.3s ease;
+}
+
+.ew-box.expanded {
+  width: 350px;
+  height: 500px;
 }
 
 .ew-box.active {
@@ -114,6 +120,25 @@
 
 .ew-header strong {
   font-size: 0.95rem;
+}
+
+.ew-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ew-resize {
+  cursor: pointer;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.15s;
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.ew-resize:hover {
+  color: #ff0000;
 }
 
 .ew-close {
@@ -282,9 +307,14 @@
 @media (max-width: 480px) {
   .ew-box {
     width: calc(100vw - 40px);
-    height: 70vh;
+    height: 60vh;
     bottom: 80px;
     right: 0;
+  }
+
+  .ew-box.expanded {
+    width: calc(100vw - 40px);
+    height: 75vh;
   }
 
   .ew-launcher {
