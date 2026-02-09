@@ -142,43 +142,83 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Inicializar auth state
-  // NOTA: Usa onAuthStateChange com INITIAL_SESSION como fonte primária.
-  // INITIAL_SESSION lê do localStorage (instantâneo), ao contrário de getSession()
-  // que faz chamada de rede e pode ser lento/pendurar em produção.
+  // ESTRATÉGIA DE CORRIDA: usa getSession() E onAuthStateChange em paralelo.
+  // O primeiro que resolver ganha. Em produção no Vercel, ambos podem ser lentos
+  // individualmente, mas juntos um deles chega rápido.
   useEffect(() => {
     let isMounted = true;
+    let authResolved = false; // Flag para evitar processar 2x
     
-    // Safety timeout - garantir que loading NUNCA fica preso infinitamente
+    // Resolver auth state (chamado por quem chegar primeiro)
+    const resolveAuth = async (session: any, source: string) => {
+      if (authResolved || !isMounted) return;
+      authResolved = true;
+      
+      console.log(`✅ Auth resolved via ${source}`);
+      
+      setSession(session);
+      setUser(session?.user ?? null);
+      userIdRef.current = session?.user?.id ?? null;
+      
+      if (session?.user) {
+        try {
+          await loadProfile(session.user.id);
+        } catch (err) {
+          console.error('Error loading profile:', err);
+        }
+      }
+      
+      if (isMounted) setLoading(false);
+    };
+    
+    // Safety timeout - garantir que loading NUNCA fica preso
     const safetyTimeout = setTimeout(() => {
-      if (isMounted) {
-        console.error('⚠️ AuthContext safety timeout: loading stuck for 12s, forcing false');
+      if (!authResolved && isMounted) {
+        console.error('⚠️ AuthContext safety timeout: forcing loading=false');
+        authResolved = true;
         setLoading(false);
       }
-    }, 12000);
+    }, 8000);
 
-    // Listener para mudanças de auth (INCLUI INITIAL_SESSION)
+    // ESTRATÉGIA 1: getSession() — faz chamada async, mas funciona sempre
+    const initFromGetSession = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('getSession error:', error);
+          if (error.message?.includes('Refresh Token') || error.message?.includes('Invalid')) {
+            await supabase.auth.signOut({ scope: 'local' });
+          }
+          if (!authResolved && isMounted) {
+            authResolved = true;
+            setLoading(false);
+          }
+          return;
+        }
+        
+        await resolveAuth(session, 'getSession');
+      } catch (err) {
+        console.error('getSession exception:', err);
+        if (!authResolved && isMounted) {
+          authResolved = true;
+          setLoading(false);
+        }
+      }
+    };
+    
+    initFromGetSession();
+
+    // ESTRATÉGIA 2: onAuthStateChange — inclui INITIAL_SESSION + eventos futuros
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event:', event);
         
         if (!isMounted) return;
         
-        // INITIAL_SESSION: sessão carregada do localStorage (instantâneo)
-        // É o primeiro evento que dispara — usa-lo para resolver loading rapidamente
+        // INITIAL_SESSION: sessão do localStorage (pode ser instantâneo ou lento)
         if (event === 'INITIAL_SESSION') {
-          setSession(session);
-          setUser(session?.user ?? null);
-          userIdRef.current = session?.user?.id ?? null;
-          
-          if (session?.user) {
-            try {
-              await loadProfile(session.user.id);
-            } catch (err) {
-              console.error('Error loading profile on INITIAL_SESSION:', err);
-            }
-          }
-          
-          if (isMounted) setLoading(false);
+          await resolveAuth(session, 'INITIAL_SESSION');
           return;
         }
         
