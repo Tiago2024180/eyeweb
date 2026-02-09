@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import './ChatWidget.css';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const INTRO_KEY = 'eyeweb_intro_seen';
 
 interface ChatMsg {
   text: string;
@@ -11,7 +12,9 @@ interface ChatMsg {
 }
 
 export default function ChatWidget() {
+  const [isVisible, setIsVisible] = useState(false); // Só mostra depois do splash
   const [isOpen, setIsOpen] = useState(false);
+  const [isClosing, setIsClosing] = useState(false); // Para animação de fade-out
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -22,6 +25,26 @@ export default function ChatWidget() {
   const inputRef = useRef<HTMLInputElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const cooldownTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTextRef = useRef(''); // Ref para evitar stale closure no typewriter
+
+  // ═══ VISIBILIDADE — Só aparece depois do splash screen ═══
+  useEffect(() => {
+    // Se já viu a intro, mostra imediatamente
+    if (sessionStorage.getItem(INTRO_KEY) === 'true') {
+      setIsVisible(true);
+      return;
+    }
+
+    // Senão, poll até a intro ser vista (quando o utilizador clica no olho)
+    const interval = setInterval(() => {
+      if (sessionStorage.getItem(INTRO_KEY) === 'true') {
+        setIsVisible(true);
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, []);
 
   // ═══ PERSISTENCIA (sessionStorage) ═══
   useEffect(() => {
@@ -61,20 +84,23 @@ export default function ChatWidget() {
     scrollToBottom();
   }, [messages, typingText, scrollToBottom]);
 
-  // ═══ TYPEWRITER ═══
+  // ═══ TYPEWRITER (com ref para evitar texto bugado) ═══
   const typeWriter = useCallback((text: string, onComplete: () => void) => {
-    let i = 0;
+    typingTextRef.current = '';
     setTypingText('');
     setIsTyping(true);
 
+    let i = 0;
     const type = () => {
       if (i < text.length) {
-        setTypingText(prev => prev + text.charAt(i));
+        typingTextRef.current += text[i];
+        setTypingText(typingTextRef.current);
         i++;
         typingTimeoutRef.current = setTimeout(type, 15);
       } else {
         setIsTyping(false);
         setTypingText('');
+        typingTextRef.current = '';
         onComplete();
       }
     };
@@ -138,64 +164,86 @@ export default function ChatWidget() {
     }
   };
 
+  // ═══ ABRIR / FECHAR COM ANIMAÇÃO ═══
+  const openChat = () => {
+    setIsClosing(false);
+    setIsOpen(true);
+    setTimeout(() => {
+      scrollToBottom();
+      if (!isTyping && !cooldown) inputRef.current?.focus();
+    }, 100);
+  };
+
+  const closeChat = () => {
+    setIsClosing(true);
+    // Esperar a animação de fade-out acabar antes de esconder
+    setTimeout(() => {
+      setIsOpen(false);
+      setIsClosing(false);
+    }, 200);
+  };
+
   const toggleChat = () => {
-    setIsOpen(prev => !prev);
-    if (!isOpen) {
-      setTimeout(() => {
-        scrollToBottom();
-        if (!isTyping && !cooldown) inputRef.current?.focus();
-      }, 100);
+    if (isOpen) {
+      closeChat();
+    } else {
+      openChat();
     }
   };
+
+  // Não renderizar nada antes do splash acabar
+  if (!isVisible) return null;
 
   const isDisabled = isTyping || cooldown;
 
   return (
     <div className="ew-widget">
       {/* Chat Box */}
-      <div className={`ew-box ${isOpen ? 'active' : ''}`}>
-        {/* Header */}
-        <div className="ew-header">
-          <strong>EyeWeb Agent</strong>
-          <span className="ew-close" onClick={() => setIsOpen(false)}>&times;</span>
-        </div>
+      {isOpen && (
+        <div className={`ew-box ${isClosing ? 'closing' : 'active'}`}>
+          {/* Header */}
+          <div className="ew-header">
+            <strong>EyeWeb Agent</strong>
+            <span className="ew-close" onClick={closeChat}>&times;</span>
+          </div>
 
-        {/* Historico */}
-        <div className="ew-history" ref={historyRef}>
-          {messages.map((msg, i) => (
-            <div key={i} className={`ew-msg ${msg.type}`}>
-              {msg.text}
-            </div>
-          ))}
-          {/* Typewriter ativo */}
-          {isTyping && (
-            <div className="ew-msg ew-bot">
-              <span className="typewriter-text">{typingText}</span>
-              <span className="typewriter-cursor"></span>
-            </div>
-          )}
-        </div>
+          {/* Historico */}
+          <div className="ew-history" ref={historyRef}>
+            {messages.map((msg, i) => (
+              <div key={i} className={`ew-msg ${msg.type}`}>
+                {msg.text}
+              </div>
+            ))}
+            {/* Typewriter ativo */}
+            {isTyping && (
+              <div className="ew-msg ew-bot">
+                <span className="typewriter-text">{typingText}</span>
+                <span className="typewriter-cursor"></span>
+              </div>
+            )}
+          </div>
 
-        {/* Input */}
-        <div className="ew-input-area">
-          <input
-            ref={inputRef}
-            type="text"
-            placeholder={isDisabled ? 'Aguarde a resposta...' : 'Escrever...'}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyPress}
-            disabled={isDisabled}
-          />
-          <button
-            className="ew-send-btn"
-            onClick={sendMessage}
-            disabled={isDisabled || !input.trim()}
-          >
-            <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-          </button>
+          {/* Input */}
+          <div className="ew-input-area">
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder={isDisabled ? 'Aguarde a resposta...' : 'Escrever...'}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyPress}
+              disabled={isDisabled}
+            />
+            <button
+              className="ew-send-btn"
+              onClick={sendMessage}
+              disabled={isDisabled || !input.trim()}
+            >
+              <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Launcher Button */}
       <div className="ew-launcher" onClick={toggleChat}>

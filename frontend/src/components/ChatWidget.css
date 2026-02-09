@@ -10,7 +10,7 @@
 /* ═══ CONTAINER ═══ */
 .ew-widget {
   position: fixed;
-  bottom: 20px;
+  bottom: 90px;
   right: 20px;
   z-index: 999999;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -54,11 +54,16 @@
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  animation: ewSlideUp 0.25s ease-out;
 }
 
 .ew-box.active {
   display: flex;
+  animation: ewSlideUp 0.25s ease-out forwards;
+}
+
+.ew-box.closing {
+  display: flex;
+  animation: ewSlideDown 0.2s ease-in forwards;
 }
 
 @keyframes ewSlideUp {
@@ -69,6 +74,17 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes ewSlideDown {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
@@ -159,6 +175,8 @@
 .typewriter-text {
   display: inline;
   white-space: pre-wrap;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .typewriter-cursor {
@@ -253,7 +271,7 @@
   .ew-box {
     width: calc(100vw - 40px);
     height: 70vh;
-    bottom: 75px;
+    bottom: 80px;
     right: 0;
   }
 
