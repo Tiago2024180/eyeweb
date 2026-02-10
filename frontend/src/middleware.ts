@@ -2,6 +2,13 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+// ─── BACKEND URL (para verificar IPs bloqueados) ────
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// ─── CACHE de IPs bloqueados (in-memory, eficaz em Node.js) ───
+const ipCache = new Map<string, { blocked: boolean; ts: number }>();
+const CACHE_TTL = 15_000; // 15 segundos
+
 // Rotas que requerem autenticação no middleware
 // NOTA: Desde que migramos o Supabase client para createClient (localStorage),
 // o middleware server-side NÃO consegue ver sessões client-side.
@@ -40,6 +47,28 @@ async function isAdminEmail(email: string): Promise<boolean> {
 }
 
 export async function middleware(req: NextRequest) {
+  // ═══════════════════════════════════════════════════
+  // 1. VERIFICAÇÃO DE IP BLOQUEADO (antes de tudo)
+  //    Se o IP está bloqueado → 403 imediato, zero acesso
+  // ═══════════════════════════════════════════════════
+  const clientIp =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('x-real-ip') ||
+    req.ip ||
+    '';
+
+  // Só verificar IPs reais (não bloquear localhost em dev)
+  if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
+    const isBlocked = await checkIpBlocked(clientIp);
+    if (isBlocked) {
+      return blocked403Response();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════
+  // 2. SUPABASE AUTH (lógica original)
+  // ═══════════════════════════════════════════════════
+
   // Se Supabase não está configurado, deixar passar todas as rotas
   if (!isSupabaseConfigured) {
     return NextResponse.next();
@@ -143,12 +172,91 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
+// ═══════════════════════════════════════════════════════
+// IP BLOCK CHECKER — consulta o backend com cache
+// ═══════════════════════════════════════════════════════
+
+async function checkIpBlocked(ip: string): Promise<boolean> {
+  // 1. Cache hit
+  const cached = ipCache.get(ip);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return cached.blocked;
+  }
+
+  // 2. Perguntar ao backend
+  try {
+    const r = await fetch(
+      `${BACKEND_URL}/api/admin/traffic/check-ip?ip=${encodeURIComponent(ip)}`,
+      { signal: AbortSignal.timeout(2500) }
+    );
+    if (r.ok) {
+      const data = await r.json();
+      ipCache.set(ip, { blocked: data.blocked, ts: Date.now() });
+      // Limpar cache se crescer demais
+      if (ipCache.size > 5000) ipCache.clear();
+      return data.blocked;
+    }
+  } catch {
+    // Fail open — se o backend não responder, não bloquear
+  }
+  return false;
+}
+
+// ═══════════════════════════════════════════════════════
+// PÁGINA 403 — Acesso bloqueado (dark theme Eye Web)
+// ═══════════════════════════════════════════════════════
+
+function blocked403Response(): NextResponse {
+  const html = `<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Acesso Bloqueado — Eye Web</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{min-height:100vh;background:linear-gradient(135deg,#0a0a0a 0%,#1a0a0a 50%,#0a0a0a 100%);display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;color:#fff}
+    .c{text-align:center;padding:3rem;max-width:520px}
+    .icon{font-size:5rem;margin-bottom:1.5rem;display:block}
+    h1{font-size:2.2rem;margin-bottom:.75rem;color:#ef4444;font-weight:700}
+    p{color:rgba(255,255,255,.55);font-size:1.05rem;line-height:1.7;margin-bottom:.75rem}
+    .line{width:60px;height:2px;background:#ef4444;margin:1.5rem auto;border-radius:2px;opacity:.5}
+    .code{font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,.2);font-size:.8rem;margin-top:1.5rem;letter-spacing:1px}
+    .badge{display:inline-block;margin-top:1.25rem;padding:.5rem 1.25rem;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.3);font-size:.78rem;letter-spacing:.5px}
+  </style>
+</head>
+<body>
+  <div class="c">
+    <span class="icon">🚫</span>
+    <h1>Acesso Bloqueado</h1>
+    <div class="line"></div>
+    <p>O teu IP foi bloqueado pelo sistema de defesa do Eye Web devido a atividade suspeita detetada.</p>
+    <p>Se acreditas que isto é um erro, contacta o administrador.</p>
+    <div class="code">HTTP 403 — FORBIDDEN</div>
+    <div class="badge">Eye Web Defense System</div>
+  </div>
+</body>
+</html>`;
+
+  return new NextResponse(html, {
+    status: 403,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store, no-cache',
+      'X-Blocked-By': 'EyeWeb-Defense',
+    },
+  });
+}
+
 export const config = {
   matcher: [
-    '/login',
-    '/signup',
-    '/perfil/:path*',
-    '/admin/:path*',
-    '/auth/complete-signup',
+    /*
+     * Intercepta TODAS as rotas exceto ficheiros estáticos:
+     * - _next/static (JS/CSS bundles)
+     * - _next/image (otimização de imagens)
+     * - favicon.ico
+     * - Ficheiros estáticos (.svg, .png, .jpg, .css, .js, .woff, etc.)
+     */
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff2?)$).*)',
   ],
 };

@@ -197,6 +197,14 @@ async def get_blocked_ips():
         return {"blocked": []}
 
 
+@router.get("/check-ip")
+async def check_ip_blocked(ip: str = Query(..., description="IP to check")):
+    """Quick blocked check — used by Next.js middleware to enforce full site block."""
+    from ..services.traffic_service import TrafficService
+    ts = TrafficService.get()
+    return {"blocked": ts.is_blocked(ip)}
+
+
 @router.post("/block-ip")
 async def block_ip(req: BlockIPRequest):
     """Manually block an IP address."""
