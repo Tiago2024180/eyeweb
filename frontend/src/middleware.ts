@@ -54,7 +54,6 @@ export async function middleware(req: NextRequest) {
   const clientIp =
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
     req.headers.get('x-real-ip') ||
-    req.ip ||
     '';
 
   // Só verificar IPs reais (não bloquear localhost em dev)
