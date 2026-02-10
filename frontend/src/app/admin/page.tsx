@@ -627,7 +627,7 @@ function MainMenu({ onNavigate, onRouteNavigate }: MainMenuProps) {
 
         <div 
           className="admin-card card-traffic" 
-          onClick={() => onNavigate('traffic')}
+          onClick={() => onRouteNavigate('/admin/traffic')}
         >
           <div className="admin-card-icon">
             <i className="fa-solid fa-shield-halved"></i>

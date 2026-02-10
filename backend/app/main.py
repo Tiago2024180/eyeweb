@@ -14,6 +14,8 @@ Documentação:
 """
 
 import logging
+import time
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -29,7 +31,9 @@ from .routers.auth_router import router as auth_router
 from .routers.admin_router import router as admin_router
 from .routers.chat_router import router as chat_router
 from .routers.user_chat_router import router as user_chat_router
+from .routers.traffic_router import router as traffic_router
 from .services.breach_service import get_breach_service
+from .services.traffic_service import TrafficService
 
 # ===========================================
 # CONFIGURAÇÃO
@@ -68,6 +72,10 @@ async def lifespan(app: FastAPI):
     
     # Pré-aquecer serviço (opcional)
     service = get_breach_service()
+    
+    # Inicializar monitor de tráfego
+    ts = TrafficService.get()
+    await ts.init()
     
     logger.info("✅ API pronta!")
     logger.info("="*50)
@@ -112,16 +120,42 @@ app.add_middleware(
 )
 
 
-# Middleware de logging de requests
+# Middleware de tráfego (logging + defesa automática)
 @app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log de todas as requests recebidas."""
-    logger.info(f"📥 {request.method} {request.url.path}")
-    
+async def traffic_middleware(request: Request, call_next):
+    """Intercepta requests para logging, deteção de ameaças e bloqueio de IPs."""
+    # Obter IP real (Render/Vercel adicionam X-Forwarded-For)
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if not ip:
+        ip = request.client.host if request.client else "unknown"
+
+    path = request.url.path
+    logger.info(f"📥 {request.method} {path} [{ip}]")
+
+    # Verificar se IP está bloqueado
+    ts = TrafficService.get()
+    if ts.is_blocked(ip):
+        logger.warning(f"🚫 IP bloqueado rejeitado: {ip}")
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Acesso bloqueado", "detail": "O teu IP foi bloqueado pelo sistema de defesa."}
+        )
+
+    start = time.time()
     response = await call_next(request)
-    
-    logger.info(f"📤 {request.method} {request.url.path} → {response.status_code}")
-    
+    elapsed_ms = int((time.time() - start) * 1000)
+
+    logger.info(f"📤 {request.method} {path} → {response.status_code} ({elapsed_ms}ms)")
+
+    # Log de tráfego (fire-and-forget — não atrasa a resposta)
+    if ts.should_log(path):
+        asyncio.create_task(ts.safe_log_request(
+            ip=ip, method=request.method, path=path,
+            status_code=response.status_code,
+            user_agent=request.headers.get("user-agent", ""),
+            response_time_ms=elapsed_ms,
+        ))
+
     return response
 
 
@@ -185,6 +219,12 @@ app.include_router(
 # Router de Chat Público (EyeWeb Agent widget)
 app.include_router(
     user_chat_router,
+    prefix="/api"
+)
+
+# Router de Tráfego (Monitor de defesa)
+app.include_router(
+    traffic_router,
     prefix="/api"
 )
 
