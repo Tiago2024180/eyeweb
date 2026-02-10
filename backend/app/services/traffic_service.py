@@ -21,8 +21,8 @@ import httpx
 logger = logging.getLogger(__name__)
 
 # ─── PATHS TO SKIP (avoid feedback loops) ────────────
-SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health", "/"}
-SKIP_PREFIXES = ("/api/admin/traffic",)
+SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health"}
+SKIP_PREFIXES = ("/api/admin/traffic", "/api/visit")
 
 # ─── THREAT SIGNATURES ───────────────────────────────
 SCANNER_AGENTS = [

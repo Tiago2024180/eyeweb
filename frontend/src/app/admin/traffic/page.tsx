@@ -231,6 +231,7 @@ export default function TrafficMonitorPage() {
       case 'POST': return 'method-post';
       case 'PUT': case 'PATCH': return 'method-put';
       case 'DELETE': return 'method-delete';
+      case 'PAGE': return 'method-page';
       default: return '';
     }
   };

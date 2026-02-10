@@ -9,18 +9,23 @@ Endpoints:
     GET  /admin/traffic/logs        — Paginated request logs
     GET  /admin/traffic/suspicious  — Suspicious activity events
     GET  /admin/traffic/blocked     — Blocked IPs list
+    GET  /admin/traffic/check-ip    — Check if IP is blocked
     POST /admin/traffic/block-ip    — Manually block an IP
     POST /admin/traffic/unblock-ip  — Unblock an IP
+    POST /visit                     — Log page visit from frontend
 """
 
 import os
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/admin/traffic", tags=["admin-traffic"])
+
+# Router separado para /visit (sem prefixo admin)
+visit_router = APIRouter(tags=["traffic-visit"])
 
 
 # ─── HELPERS ──────────────────────────────────────────
@@ -221,3 +226,47 @@ async def unblock_ip(req: UnblockIPRequest):
     ts = TrafficService.get()
     await ts.unblock_ip(req.ip)
     return {"success": True, "message": f"IP {req.ip} desbloqueado"}
+
+
+# ═══════════════════════════════════════════════════════
+# VISIT ENDPOINT — registar visitas de página (frontend beacon)
+# ═══════════════════════════════════════════════════════
+
+class VisitRequest(BaseModel):
+    page: str
+
+
+@visit_router.post("/visit")
+async def log_visit(req: VisitRequest, request: Request):
+    """
+    Regista uma visita de página enviada pelo frontend.
+    O frontend chama isto a cada navegação para que toda a
+    atividade (não só chamadas API) apareça no traffic monitor.
+    """
+    import asyncio
+    from ..services.traffic_service import TrafficService
+
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if not ip:
+        ip = request.client.host if request.client else "unknown"
+
+    ts = TrafficService.get()
+
+    # Se está bloqueado, rejeitar
+    if ts.is_blocked(ip):
+        return {"ok": False}
+
+    # Sanitizar path (máx 500 chars, sem scripts)
+    page = (req.page or "/")[:500]
+
+    # Log fire-and-forget (não atrasar resposta)
+    asyncio.create_task(ts.safe_log_request(
+        ip=ip,
+        method="PAGE",
+        path=page,
+        status_code=200,
+        user_agent=request.headers.get("user-agent", ""),
+        response_time_ms=0,
+    ))
+
+    return {"ok": True}

@@ -4,6 +4,7 @@ import './login/login.css'
 import './perfil/perfil.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import ChatWidget from '@/components/ChatWidget'
+import PageTracker from '@/components/PageTracker'
 
 export const metadata: Metadata = {
   title: 'Eye Web - Breach Checker',
@@ -35,6 +36,7 @@ export default function RootLayout({
       </head>
       <body>
         <AuthProvider>
+          <PageTracker />
           {children}
           <ChatWidget />
         </AuthProvider>

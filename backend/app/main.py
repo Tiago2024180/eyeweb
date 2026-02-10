@@ -31,7 +31,7 @@ from .routers.auth_router import router as auth_router
 from .routers.admin_router import router as admin_router
 from .routers.chat_router import router as chat_router
 from .routers.user_chat_router import router as user_chat_router
-from .routers.traffic_router import router as traffic_router
+from .routers.traffic_router import router as traffic_router, visit_router
 from .services.breach_service import get_breach_service
 from .services.traffic_service import TrafficService
 
@@ -225,6 +225,12 @@ app.include_router(
 # Router de Tráfego (Monitor de defesa)
 app.include_router(
     traffic_router,
+    prefix="/api"
+)
+
+# Router de Visitas (beacon do frontend para registar page views)
+app.include_router(
+    visit_router,
     prefix="/api"
 )
 

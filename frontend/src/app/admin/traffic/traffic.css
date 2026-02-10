@@ -307,6 +307,7 @@
 .method-post { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
 .method-put { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
 .method-delete { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.method-page { background: rgba(168, 85, 247, 0.15); color: #c4b5fd; }
 
 .status-badge {
   display: inline-block;
