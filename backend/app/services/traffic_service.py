@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 # ─── PATHS TO SKIP (avoid feedback loops) ────────────
 SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health"}
-SKIP_PREFIXES = ("/api/admin/traffic", "/api/visit")
+SKIP_PREFIXES = ("/api/admin/traffic", "/api/visit", "/api/heartbeat", "/api/check-ip")
 
 # ─── THREAT SIGNATURES ───────────────────────────────
 SCANNER_AGENTS = [
@@ -82,6 +82,7 @@ class TrafficService:
         self.blocked_ips: set = set()
         self._req_counts: Dict[str, list] = defaultdict(list)
         self._geo_cache: Dict[str, dict] = {}
+        self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
         self._initialized = False
 
     @property
@@ -120,6 +121,28 @@ class TrafficService:
     def is_blocked(self, ip: str) -> bool:
         return ip in self.blocked_ips
 
+    _LOCALHOST = {"127.0.0.1", "::1", "localhost", "unknown", ""}
+
+    def heartbeat(self, ip: str):
+        """Record a heartbeat from an IP (called every ~20s by frontend)."""
+        if ip in self._LOCALHOST:
+            return  # Ignorar localhost — não conta como utilizador real
+        self._heartbeats[ip] = time.time()
+        # Cleanup stale heartbeats (> 5 min)
+        if len(self._heartbeats) > 5000:
+            cutoff = time.time() - 300
+            self._heartbeats = {k: v for k, v in self._heartbeats.items() if v > cutoff}
+
+    def is_online(self, ip: str) -> bool:
+        """Check if IP sent a heartbeat in the last 60 seconds."""
+        last = self._heartbeats.get(ip, 0)
+        return (time.time() - last) < 60
+
+    def online_count(self) -> int:
+        """Count unique IPs with active heartbeat (online right now)."""
+        cutoff = time.time() - 60
+        return sum(1 for v in self._heartbeats.values() if v > cutoff)
+
     def should_log(self, path: str) -> bool:
         if path in SKIP_PATHS:
             return False
@@ -138,7 +161,14 @@ class TrafficService:
         if not self._configured:
             return
 
+        # ─── Ignorar localhost (chamadas internas server-to-server) ───
+        if ip in self._LOCALHOST:
+            return
+
         now = time.time()
+
+        # ─── Record heartbeat (any request = alive) ───
+        self._heartbeats[ip] = now
 
         # ─── Track request rate (keep 5 min window) ───
         self._req_counts[ip].append(now)

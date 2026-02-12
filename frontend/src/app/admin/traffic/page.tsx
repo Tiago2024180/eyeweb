@@ -2,9 +2,22 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 import './traffic.css';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// ─── AUTH HELPER ───────────────────────────────────────
+// Obtém o token Supabase para autenticar requests ao backend admin
+async function getAuthHeaders(): Promise<HeadersInit> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      return { 'Authorization': `Bearer ${session.access_token}` };
+    }
+  } catch {}
+  return {};
+}
 
 // ═══════════════════════════════════════════════════════
 // TYPES
@@ -48,10 +61,21 @@ interface BlockedIP {
   created_at: string;
 }
 
+interface Connection {
+  ip: string;
+  country: string;
+  city: string;
+  is_vpn: boolean;
+  vpn_provider: string;
+  method: string;
+  requests: number;
+  online: boolean;
+}
+
 interface Stats {
-  requests_24h: number;
+  requests_today: number;
   active_ips_5m: number;
-  suspicious_24h: number;
+  suspicious_today: number;
   blocked_total: number;
 }
 
@@ -64,7 +88,7 @@ type Tab = 'logs' | 'suspicious' | 'blocked';
 export default function TrafficMonitorPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('logs');
-  const [logs, setLogs] = useState<TrafficLog[]>([]);
+  const [connections, setConnections] = useState<Connection[]>([]);
   const [suspicious, setSuspicious] = useState<SuspiciousEvent[]>([]);
   const [blocked, setBlocked] = useState<BlockedIP[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -82,21 +106,23 @@ export default function TrafficMonitorPage() {
 
   const fetchStats = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/api/admin/traffic/stats`);
+      const headers = await getAuthHeaders();
+      const r = await fetch(`${API}/api/admin/traffic/stats`, { headers });
       if (r.ok) setStats(await r.json());
     } catch {}
   }, []);
 
-  const fetchLogs = useCallback(async () => {
+  const fetchConnections = useCallback(async () => {
     try {
       setError(null);
-      const r = await fetch(`${API}/api/admin/traffic/logs?limit=100`);
+      const headers = await getAuthHeaders();
+      const r = await fetch(`${API}/api/admin/traffic/connections`, { headers });
       if (r.ok) {
         const data = await r.json();
-        setLogs(data.logs || []);
+        setConnections(data.connections || []);
       }
     } catch {
-      setError('Erro ao carregar logs de tráfego');
+      setError('Erro ao carregar conexões');
     } finally {
       setIsLoading(false);
     }
@@ -105,7 +131,8 @@ export default function TrafficMonitorPage() {
   const fetchSuspicious = useCallback(async () => {
     try {
       setError(null);
-      const r = await fetch(`${API}/api/admin/traffic/suspicious?limit=100`);
+      const headers = await getAuthHeaders();
+      const r = await fetch(`${API}/api/admin/traffic/suspicious?limit=100`, { headers });
       if (r.ok) {
         const data = await r.json();
         setSuspicious(data.events || []);
@@ -120,7 +147,8 @@ export default function TrafficMonitorPage() {
   const fetchBlocked = useCallback(async () => {
     try {
       setError(null);
-      const r = await fetch(`${API}/api/admin/traffic/blocked`);
+      const headers = await getAuthHeaders();
+      const r = await fetch(`${API}/api/admin/traffic/blocked`, { headers });
       if (r.ok) {
         const data = await r.json();
         setBlocked(data.blocked || []);
@@ -137,29 +165,29 @@ export default function TrafficMonitorPage() {
   // Initial load
   useEffect(() => {
     fetchStats();
-    fetchLogs();
-  }, [fetchStats, fetchLogs]);
+    fetchConnections();
+  }, [fetchStats, fetchConnections]);
 
   // Tab change
   useEffect(() => {
     setIsLoading(true);
-    if (activeTab === 'logs') fetchLogs();
+    if (activeTab === 'logs') fetchConnections();
     else if (activeTab === 'suspicious') fetchSuspicious();
     else fetchBlocked();
-  }, [activeTab, fetchLogs, fetchSuspicious, fetchBlocked]);
+  }, [activeTab, fetchConnections, fetchSuspicious, fetchBlocked]);
 
   // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return;
-    const ms = activeTab === 'logs' ? 3000 : activeTab === 'suspicious' ? 5000 : 10000;
+    const ms = activeTab === 'logs' ? 5000 : activeTab === 'suspicious' ? 5000 : 10000;
     const interval = setInterval(() => {
       fetchStats();
-      if (activeTab === 'logs') fetchLogs();
+      if (activeTab === 'logs') fetchConnections();
       else if (activeTab === 'suspicious') fetchSuspicious();
       else fetchBlocked();
     }, ms);
     return () => clearInterval(interval);
-  }, [autoRefresh, activeTab, fetchStats, fetchLogs, fetchSuspicious, fetchBlocked]);
+  }, [autoRefresh, activeTab, fetchStats, fetchConnections, fetchSuspicious, fetchBlocked]);
 
   // ─── ACTIONS ─────────────────────────────────────────
 
@@ -167,9 +195,10 @@ export default function TrafficMonitorPage() {
     if (!blockTargetIp || !blockReason.trim()) return;
     setActionLoading(true);
     try {
+      const authHeaders = await getAuthHeaders();
       const r = await fetch(`${API}/api/admin/traffic/block-ip`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ ip: blockTargetIp, reason: blockReason }),
       });
       if (r.ok) {
@@ -178,7 +207,7 @@ export default function TrafficMonitorPage() {
         setBlockReason('');
         fetchStats();
         fetchBlocked();
-        if (activeTab === 'logs') fetchLogs();
+        if (activeTab === 'logs') fetchConnections();
       }
     } catch {} finally {
       setActionLoading(false);
@@ -188,9 +217,10 @@ export default function TrafficMonitorPage() {
   const handleUnblock = async (ip: string) => {
     if (!confirm(`Desbloquear o IP ${ip}?`)) return;
     try {
+      const authHeaders = await getAuthHeaders();
       await fetch(`${API}/api/admin/traffic/unblock-ip`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ ip }),
       });
       fetchStats();
@@ -309,22 +339,22 @@ export default function TrafficMonitorPage() {
           <div className="stat-card">
             <div className="stat-icon"><i className="fa-solid fa-chart-line"></i></div>
             <div className="stat-info">
-              <div className="stat-value">{stats.requests_24h.toLocaleString()}</div>
-              <div className="stat-label">Requests (24h)</div>
+              <div className="stat-value">{stats.requests_today.toLocaleString()}</div>
+              <div className="stat-label">Requests (hoje)</div>
             </div>
           </div>
           <div className="stat-card">
             <div className="stat-icon"><i className="fa-solid fa-users"></i></div>
             <div className="stat-info">
-              <div className="stat-value">{stats.active_ips_5m}</div>
-              <div className="stat-label">IPs Ativos (5min)</div>
+              <div className="stat-value">{connections.filter(c => c.online).length}</div>
+              <div className="stat-label">IPs Online</div>
             </div>
           </div>
           <div className="stat-card stat-warning">
             <div className="stat-icon"><i className="fa-solid fa-triangle-exclamation"></i></div>
             <div className="stat-info">
-              <div className="stat-value">{stats.suspicious_24h}</div>
-              <div className="stat-label">Suspeitos (24h)</div>
+              <div className="stat-value">{stats.suspicious_today}</div>
+              <div className="stat-label">Suspeitos</div>
             </div>
           </div>
           <div className="stat-card stat-danger">
@@ -379,76 +409,90 @@ export default function TrafficMonitorPage() {
       )}
 
       {/* ═══════════════════════════════════════════════ */}
-      {/* TAB 1: LOGS (Conexões em tempo real)            */}
+      {/* TAB 1: LOGS (Conexões únicas hoje)              */}
       {/* ═══════════════════════════════════════════════ */}
       {!isLoading && activeTab === 'logs' && (
         <div className="traffic-table-wrapper">
-          {logs.length === 0 ? (
+          <div className="connections-header">
+            <span className="connections-date">
+              <i className="fa-regular fa-calendar"></i>
+              {new Date().toLocaleDateString('pt-PT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+                .replace(/\b\w/g, c => c.toUpperCase())}
+            </span>
+            <span className="connections-count">
+              {connections.length} conexão{connections.length !== 1 ? 'ões' : ''}
+              {' · '}
+              <span className="online-count">{connections.filter(c => c.online).length} online</span>
+            </span>
+          </div>
+          {connections.length === 0 ? (
             <div className="empty-state">
-              <i className="fa-solid fa-inbox"></i>
-              <p>Sem logs de tráfego registados</p>
+              <i className="fa-solid fa-plug-circle-xmark"></i>
+              <p>Sem conexões registadas hoje</p>
+              <span className="empty-hint">As conexões aparecem quando alguém visita o site</span>
             </div>
           ) : (
             <table className="traffic-table">
               <thead>
                 <tr>
-                  <th>Hora</th>
+                  <th>Estado</th>
                   <th>IP</th>
                   <th>Localização</th>
-                  <th>Método</th>
-                  <th>Path</th>
-                  <th>Status</th>
+                  <th>Tipo</th>
                   <th>VPN</th>
-                  <th>Tempo</th>
+                  <th>Requests</th>
                   <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {logs.map((log) => (
+                {connections.map((conn) => (
                   <tr
-                    key={log.id}
+                    key={conn.ip}
                     className={
-                      blockedSet.has(log.ip) ? 'row-blocked' : log.is_vpn ? 'row-vpn' : ''
+                      blockedSet.has(conn.ip) ? 'row-blocked' :
+                      conn.is_vpn ? 'row-vpn' :
+                      conn.online ? 'row-online' : ''
                     }
                   >
-                    <td className="col-time">{formatTime(log.created_at)}</td>
-                    <td className="col-ip"><code>{log.ip}</code></td>
+                    <td>
+                      <span className={`online-badge ${conn.online ? 'is-online' : 'is-offline'}`}>
+                        <span className="online-dot"></span>
+                        {conn.online ? 'Online' : 'Offline'}
+                      </span>
+                    </td>
+                    <td className="col-ip"><code>{conn.ip}</code></td>
                     <td className="col-location">
-                      {log.country || '—'}
-                      {log.city ? `, ${log.city}` : ''}
+                      {conn.country || '—'}
+                      {conn.city ? `, ${conn.city}` : ''}
                     </td>
                     <td>
-                      <span className={`method-badge ${getMethodClass(log.method)}`}>
-                        {log.method}
-                      </span>
-                    </td>
-                    <td className="col-path" title={log.path}>{log.path}</td>
-                    <td>
-                      <span className={`status-badge status-${Math.floor(log.status_code / 100)}xx`}>
-                        {log.status_code}
+                      <span className={`method-badge ${getMethodClass(conn.method)}`}>
+                        {conn.method}
                       </span>
                     </td>
                     <td>
-                      {log.is_vpn ? (
-                        <span className="vpn-badge" title={log.vpn_provider || 'VPN/Proxy detetado'}>
-                          <i className="fa-solid fa-mask"></i> VPN
+                      {conn.is_vpn ? (
+                        <span className="vpn-badge" title={conn.vpn_provider || 'VPN/Proxy detetado'}>
+                          Sim
                         </span>
                       ) : (
-                        <span className="no-vpn">—</span>
+                        <span className="no-vpn">Não</span>
                       )}
                     </td>
-                    <td className="col-time-ms">{log.response_time_ms}ms</td>
+                    <td className="col-requests">
+                      <span className="requests-count">{conn.requests}</span>
+                    </td>
                     <td className="col-actions">
-                      {!blockedSet.has(log.ip) && log.ip !== '127.0.0.1' && (
+                      {!blockedSet.has(conn.ip) && conn.ip !== '127.0.0.1' && (
                         <button
                           className="action-btn block-btn"
-                          onClick={() => openBlockModal(log.ip)}
+                          onClick={() => openBlockModal(conn.ip)}
                           title="Bloquear IP"
                         >
                           <i className="fa-solid fa-ban"></i>
                         </button>
                       )}
-                      {blockedSet.has(log.ip) && (
+                      {blockedSet.has(conn.ip) && (
                         <span className="already-blocked" title="IP já bloqueado">
                           <i className="fa-solid fa-lock"></i>
                         </span>

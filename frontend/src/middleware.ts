@@ -7,7 +7,11 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // ─── CACHE de IPs bloqueados (in-memory, eficaz em Node.js) ───
 const ipCache = new Map<string, { blocked: boolean; ts: number }>();
-const CACHE_TTL = 15_000; // 15 segundos
+const CACHE_TTL = 15_000; // 15 segundos — só para bloqueio
+
+// Cache de visitas registadas (evitar duplicados na mesma sessão)
+const visitCache = new Map<string, number>(); // "ip|path" → timestamp
+const VISIT_TTL = 60_000; // 60 segundos — mesma página não é re-registada
 
 // Rotas que requerem autenticação no middleware
 // NOTA: Desde que migramos o Supabase client para createClient (localStorage),
@@ -56,9 +60,18 @@ export async function middleware(req: NextRequest) {
     req.headers.get('x-real-ip') ||
     '';
 
-  // Só verificar IPs reais (não bloquear localhost em dev)
+  // Verificar IP bloqueado — só para IPs reais (não localhost)
+  // Heartbeats de utilizadores reais passam pelo proxy /api/heartbeat
   if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
-    const isBlocked = await checkIpBlocked(clientIp);
+    const pagePath = req.nextUrl.pathname;
+    const userAgent = req.headers.get('user-agent') || '';
+    // Não enviar path para: rotas admin ou /api/ (evita poluir traffic_logs)
+    const isInternal = pagePath.startsWith('/admin') || pagePath.startsWith('/api/');
+    const isBlocked = await checkIpBlocked(
+      clientIp,
+      isInternal ? '' : pagePath,
+      isInternal ? '' : userAgent
+    );
     if (isBlocked) {
       return blocked403Response();
     }
@@ -175,24 +188,40 @@ export async function middleware(req: NextRequest) {
 // IP BLOCK CHECKER — consulta o backend com cache
 // ═══════════════════════════════════════════════════════
 
-async function checkIpBlocked(ip: string): Promise<boolean> {
-  // 1. Cache hit
+async function checkIpBlocked(ip: string, path: string = '', ua: string = ''): Promise<boolean> {
+  // 1. Se IP está em cache como bloqueado → retornar imediatamente
   const cached = ipCache.get(ip);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) {
-    return cached.blocked;
+  if (cached && Date.now() - cached.ts < CACHE_TTL && cached.blocked) {
+    return true;
   }
 
-  // 2. Perguntar ao backend
+  // 2. Verificar se esta visita (ip+path) já foi registada recentemente
+  const visitKey = `${ip}|${path}`;
+  const lastVisit = visitCache.get(visitKey) || 0;
+  const skipVisitLog = Date.now() - lastVisit < VISIT_TTL;
+
+  // 3. Perguntar ao backend (envia path+ua para registar visita)
   try {
+    const params = new URLSearchParams({ ip });
+    // Só enviar path se esta visita ainda não foi registada
+    if (path && !skipVisitLog) {
+      params.set('path', path);
+      if (ua) params.set('ua', ua.slice(0, 300));
+    }
+
     const r = await fetch(
-      `${BACKEND_URL}/api/admin/traffic/check-ip?ip=${encodeURIComponent(ip)}`,
+      `${BACKEND_URL}/api/check-ip?${params.toString()}`,
       { signal: AbortSignal.timeout(2500) }
     );
     if (r.ok) {
       const data = await r.json();
       ipCache.set(ip, { blocked: data.blocked, ts: Date.now() });
-      // Limpar cache se crescer demais
+      if (path && !skipVisitLog) {
+        visitCache.set(visitKey, Date.now());
+      }
+      // Limpar caches se crescerem demais
       if (ipCache.size > 5000) ipCache.clear();
+      if (visitCache.size > 10000) visitCache.clear();
       return data.blocked;
     }
   } catch {

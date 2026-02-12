@@ -98,7 +98,6 @@ class Settings(BaseSettings):
         "http://localhost:3000",      # Next.js dev
         "http://127.0.0.1:3000",
         "https://eye-web.vercel.app", # Produção (ajustar conforme necessário)
-        "*"                            # Permitir todas (apenas desenvolvimento)
     ]
     
     # ===========================================

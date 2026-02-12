@@ -1,12 +1,11 @@
 'use client';
 
 /**
- * PageTracker — componente invisível que regista visitas de página.
+ * PageTracker — componente invisível que regista visitas de página
+ * e envia heartbeats periódicos para manter o estado online/offline.
  * 
- * Envia um beacon ao backend sempre que o utilizador navega para uma
- * nova página, para que TODAS as visitas (não só chamadas API) apareçam
- * no Monitor de Tráfego do admin.
- * 
+ * - Envia beacon ao backend a cada navegação (visita de página)
+ * - Envia heartbeat a cada 30s (para o admin ver quem está online)
  * - Usa `navigator.sendBeacon` quando disponível (não bloqueia)
  * - Fallback para `fetch` keepalive
  * - Não renderiza nada visualmente
@@ -15,40 +14,38 @@
 import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
 export default function PageTracker() {
   const pathname = usePathname();
   const lastPath = useRef<string>('');
 
+  // ─── Registar visita de página ────────────────────
+  // (Visitas são agora registadas server-to-server pelo middleware.ts,
+  //  não precisamos de beacon do browser para isso)
+
+  // ─── Heartbeat periódico (20s) — manter estado online ──
+  // Chama /api/heartbeat (Next.js API route, same-origin).
+  // O pedido passa pelo middleware que extrai o IP real e
+  // reencaminha ao backend — sem criar entradas nos traffic_logs.
   useEffect(() => {
-    // Evitar duplicados (pathname pode re-disparar)
-    if (pathname === lastPath.current) return;
-    lastPath.current = pathname;
-
-    // Não rastrear rotas de admin/traffic (evitar feedback loop)
-    if (pathname.startsWith('/admin/traffic')) return;
-
-    const body = JSON.stringify({ page: pathname });
-
-    try {
-      // sendBeacon — melhor performance, não bloqueia navegação
-      if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-        const blob = new Blob([body], { type: 'application/json' });
-        navigator.sendBeacon(`${API}/api/visit`, blob);
-      } else {
-        // Fallback
-        fetch(`${API}/api/visit`, {
+    const sendHeartbeat = () => {
+      try {
+        fetch('/api/heartbeat', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body,
           keepalive: true,
         }).catch(() => {});
+      } catch {
+        // Silenciar — heartbeat nunca deve quebrar a experiência
       }
-    } catch {
-      // Silenciar erros — tracking nunca deve quebrar a experiência
-    }
-  }, [pathname]);
+    };
+
+    // Enviar imediatamente ao carregar
+    sendHeartbeat();
+
+    // Repetir a cada 20 segundos (online expira aos 60s)
+    const interval = setInterval(sendHeartbeat, 20_000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   return null; // Componente invisível
 }
