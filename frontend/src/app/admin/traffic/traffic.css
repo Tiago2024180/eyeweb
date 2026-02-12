@@ -795,3 +795,278 @@
     font-size: 1.1rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════ */
+/* WIRESHARK-STYLE DETAILED LOGS                      */
+/* ═══════════════════════════════════════════════════ */
+
+/* ─── TOOLBAR ──────────────────────────────────────── */
+
+.detailed-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+}
+
+.detailed-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  flex: 1;
+  min-width: 180px;
+  max-width: 300px;
+}
+
+.detailed-search i {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 0.8rem;
+}
+
+.detailed-search input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font-size: 0.85rem;
+  width: 100%;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.detailed-search input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.detailed-type-filters {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.type-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.78rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.type-filter-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.type-filter-btn.active {
+  background: rgba(220, 38, 38, 0.15);
+  border-color: rgba(220, 38, 38, 0.3);
+  color: #fca5a5;
+}
+
+.detailed-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  white-space: nowrap;
+}
+
+/* ─── WIRESHARK TABLE ──────────────────────────────── */
+
+.wireshark-table {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  min-width: 900px;
+}
+
+.wireshark-table th {
+  font-size: 0.7rem;
+  padding: 0.6rem 0.75rem;
+  background: rgba(30, 30, 30, 0.8);
+}
+
+.wireshark-table td {
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* ─── TIMESTAMP COLUMN ─────────────────────────────── */
+
+.col-time-ws {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  letter-spacing: 0.5px;
+}
+
+/* ─── TYPE BADGES ──────────────────────────────────── */
+
+.type-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.type-badge.type-request {
+  background: rgba(59, 130, 246, 0.12);
+  color: #93c5fd;
+}
+
+.type-badge.type-page {
+  background: rgba(168, 85, 247, 0.12);
+  color: #c4b5fd;
+}
+
+.type-badge.type-threat {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+/* ─── ROW TINTS (Wireshark-style color bands) ──────── */
+
+.ws-row {
+  transition: background 0.1s;
+}
+
+.ws-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Normal requests — no special tint */
+.ws-request {
+  background: transparent;
+}
+
+/* Page visits — subtle purple tint */
+.ws-page {
+  background: rgba(168, 85, 247, 0.02);
+}
+
+/* Threats — severity-based tints */
+.ws-threat {
+  border-left: 3px solid transparent;
+}
+
+.ws-threat.ws-low {
+  background: rgba(59, 130, 246, 0.04);
+  border-left-color: #3b82f6;
+}
+
+.ws-threat.ws-medium {
+  background: rgba(251, 191, 36, 0.05);
+  border-left-color: #fbbf24;
+}
+
+.ws-threat.ws-high {
+  background: rgba(249, 115, 22, 0.06);
+  border-left-color: #f97316;
+}
+
+.ws-threat.ws-critical {
+  background: rgba(239, 68, 68, 0.08);
+  border-left-color: #ef4444;
+}
+
+/* ─── INFO COLUMN ──────────────────────────────────── */
+
+.col-info {
+  text-align: left;
+}
+
+.threat-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.threat-detail {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.65);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-blocked-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  white-space: nowrap;
+  letter-spacing: 0.3px;
+}
+
+.request-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.response-time {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.info-label-page {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: rgba(168, 85, 247, 0.7);
+}
+
+.info-label-api {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.76rem;
+  color: rgba(59, 130, 246, 0.6);
+}
+
+/* ─── RESPONSIVE — Detailed logs ──────────────────── */
+
+@media (max-width: 768px) {
+  .detailed-toolbar {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .detailed-search {
+    max-width: none;
+    min-width: 0;
+  }
+
+  .type-filter-btn span {
+    display: none;
+  }
+
+  .threat-detail {
+    max-width: 150px;
+  }
+}

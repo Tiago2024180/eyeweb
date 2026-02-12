@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list = [
         "http://localhost:3000",      # Next.js dev
         "http://127.0.0.1:3000",
-        "https://eye-web.vercel.app", # Produção (ajustar conforme necessário)
+        "https://eyeweb.vercel.app",  # Produção Vercel
     ]
     
     # ===========================================

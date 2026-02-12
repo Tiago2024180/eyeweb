@@ -79,7 +79,27 @@ interface Stats {
   blocked_total: number;
 }
 
-type Tab = 'logs' | 'suspicious' | 'blocked';
+interface DetailedLogEntry {
+  _type: 'request' | 'threat';
+  id: string;
+  ip: string;
+  timestamp: string;
+  method: string;
+  path: string;
+  status_code: number;
+  user_agent: string;
+  country: string;
+  city: string;
+  is_vpn: boolean;
+  vpn_provider: string;
+  response_time_ms: number;
+  event: string | null;
+  severity: string | null;
+  details: string | null;
+  auto_blocked: boolean;
+}
+
+type Tab = 'logs' | 'detailed' | 'blocked';
 
 // ═══════════════════════════════════════════════════════
 // COMPONENT
@@ -89,12 +109,16 @@ export default function TrafficMonitorPage() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>('logs');
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [suspicious, setSuspicious] = useState<SuspiciousEvent[]>([]);
+  const [detailedLogs, setDetailedLogs] = useState<DetailedLogEntry[]>([]);
   const [blocked, setBlocked] = useState<BlockedIP[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Detailed logs filters (client-side for instant UX)
+  const [detailedFilter, setDetailedFilter] = useState('');
+  const [detailedTypeFilter, setDetailedTypeFilter] = useState<'all' | 'request' | 'threat'>('all');
 
   // Block modal
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -128,17 +152,17 @@ export default function TrafficMonitorPage() {
     }
   }, []);
 
-  const fetchSuspicious = useCallback(async () => {
+  const fetchDetailedLogs = useCallback(async () => {
     try {
       setError(null);
       const headers = await getAuthHeaders();
-      const r = await fetch(`${API}/api/admin/traffic/suspicious?limit=100`, { headers });
+      const r = await fetch(`${API}/api/admin/traffic/detailed-logs?limit=200`, { headers });
       if (r.ok) {
         const data = await r.json();
-        setSuspicious(data.events || []);
+        setDetailedLogs(data.entries || []);
       }
     } catch {
-      setError('Erro ao carregar atividade suspeita');
+      setError('Erro ao carregar logs detalhados');
     } finally {
       setIsLoading(false);
     }
@@ -172,22 +196,22 @@ export default function TrafficMonitorPage() {
   useEffect(() => {
     setIsLoading(true);
     if (activeTab === 'logs') fetchConnections();
-    else if (activeTab === 'suspicious') fetchSuspicious();
+    else if (activeTab === 'detailed') fetchDetailedLogs();
     else fetchBlocked();
-  }, [activeTab, fetchConnections, fetchSuspicious, fetchBlocked]);
+  }, [activeTab, fetchConnections, fetchDetailedLogs, fetchBlocked]);
 
   // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return;
-    const ms = activeTab === 'logs' ? 5000 : activeTab === 'suspicious' ? 5000 : 10000;
+    const ms = activeTab === 'logs' ? 5000 : activeTab === 'detailed' ? 3000 : 10000;
     const interval = setInterval(() => {
       fetchStats();
       if (activeTab === 'logs') fetchConnections();
-      else if (activeTab === 'suspicious') fetchSuspicious();
+      else if (activeTab === 'detailed') fetchDetailedLogs();
       else fetchBlocked();
     }, ms);
     return () => clearInterval(interval);
-  }, [autoRefresh, activeTab, fetchStats, fetchConnections, fetchSuspicious, fetchBlocked]);
+  }, [autoRefresh, activeTab, fetchStats, fetchConnections, fetchDetailedLogs, fetchBlocked]);
 
   // ─── ACTIONS ─────────────────────────────────────────
 
@@ -298,6 +322,57 @@ export default function TrafficMonitorPage() {
     return icons[e] || 'fa-triangle-exclamation';
   };
 
+  // ─── WIRESHARK-STYLE HELPERS ─────────────────────
+
+  const formatTimeWS = (dt: string) => {
+    try {
+      return new Date(dt).toLocaleTimeString('pt-PT', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+      });
+    } catch { return dt; }
+  };
+
+  const getStatusClass = (code: number) => {
+    if (code >= 500) return 'status-5xx';
+    if (code >= 400) return 'status-4xx';
+    if (code >= 300) return 'status-3xx';
+    return 'status-2xx';
+  };
+
+  const getDetailedRowClass = (entry: DetailedLogEntry) => {
+    if (entry._type === 'threat') {
+      switch (entry.severity) {
+        case 'critical': return 'ws-row ws-threat ws-critical';
+        case 'high': return 'ws-row ws-threat ws-high';
+        case 'medium': return 'ws-row ws-threat ws-medium';
+        case 'low': return 'ws-row ws-threat ws-low';
+        default: return 'ws-row ws-threat';
+      }
+    }
+    if (entry.method === 'PAGE') return 'ws-row ws-page';
+    return 'ws-row ws-request';
+  };
+
+  const getTypeIcon = (entry: DetailedLogEntry) => {
+    if (entry._type === 'threat') return getEventIcon(entry.event || '');
+    if (entry.method === 'PAGE') return 'fa-eye';
+    return 'fa-arrow-right-arrow-left';
+  };
+
+  const getTypeLabel = (entry: DetailedLogEntry) => {
+    if (entry._type === 'threat') return 'Ameaça';
+    if (entry.method === 'PAGE') return 'Visita';
+    return 'Request';
+  };
+
+  // Filtered detailed logs (client-side filtering for instant UX)
+  const filteredDetailedLogs = detailedLogs.filter(entry => {
+    if (detailedFilter && !entry.ip.includes(detailedFilter)) return false;
+    if (detailedTypeFilter === 'request' && entry._type !== 'request') return false;
+    if (detailedTypeFilter === 'threat' && entry._type !== 'threat') return false;
+    return true;
+  });
+
   // Set of blocked IPs for quick lookup in logs tab
   const blockedSet = new Set(blocked.map(b => b.ip));
 
@@ -377,10 +452,10 @@ export default function TrafficMonitorPage() {
           <span>Logs</span>
         </button>
         <button
-          className={`tab-btn ${activeTab === 'suspicious' ? 'active' : ''}`}
-          onClick={() => setActiveTab('suspicious')}
+          className={`tab-btn ${activeTab === 'detailed' ? 'active' : ''}`}
+          onClick={() => setActiveTab('detailed')}
         >
-          <i className="fa-solid fa-triangle-exclamation"></i>
+          <i className="fa-solid fa-tower-broadcast"></i>
           <span>Logs Detalhados</span>
         </button>
         <button
@@ -507,60 +582,135 @@ export default function TrafficMonitorPage() {
       )}
 
       {/* ═══════════════════════════════════════════════ */}
-      {/* TAB 2: LOGS DETALHADOS (Atividade Suspeita)    */}
+      {/* TAB 2: LOGS DETALHADOS (Wireshark-style)       */}
       {/* ═══════════════════════════════════════════════ */}
-      {!isLoading && activeTab === 'suspicious' && (
-        <div className="traffic-table-wrapper">
-          {suspicious.length === 0 ? (
+      {!isLoading && activeTab === 'detailed' && (
+        <div className="traffic-table-wrapper detailed-wrapper">
+          {/* ─── Filter Toolbar ─── */}
+          <div className="detailed-toolbar">
+            <div className="detailed-search">
+              <i className="fa-solid fa-magnifying-glass"></i>
+              <input
+                type="text"
+                placeholder="Filtrar por IP..."
+                value={detailedFilter}
+                onChange={(e) => setDetailedFilter(e.target.value)}
+              />
+            </div>
+            <div className="detailed-type-filters">
+              <button
+                className={`type-filter-btn ${detailedTypeFilter === 'all' ? 'active' : ''}`}
+                onClick={() => setDetailedTypeFilter('all')}
+              >
+                Todos
+              </button>
+              <button
+                className={`type-filter-btn ${detailedTypeFilter === 'request' ? 'active' : ''}`}
+                onClick={() => setDetailedTypeFilter('request')}
+              >
+                <i className="fa-solid fa-arrow-right-arrow-left"></i> Requests
+              </button>
+              <button
+                className={`type-filter-btn ${detailedTypeFilter === 'threat' ? 'active' : ''}`}
+                onClick={() => setDetailedTypeFilter('threat')}
+              >
+                <i className="fa-solid fa-skull-crossbones"></i> Ameaças
+              </button>
+            </div>
+            <span className="detailed-count">
+              {filteredDetailedLogs.length} entrada{filteredDetailedLogs.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {filteredDetailedLogs.length === 0 ? (
             <div className="empty-state">
-              <i className="fa-solid fa-shield-halved"></i>
-              <p>Sem atividade suspeita detetada</p>
-              <span className="empty-hint">O sistema de defesa está a monitorizar o tráfego</span>
+              <i className="fa-solid fa-satellite-dish"></i>
+              <p>Sem atividade registada</p>
+              <span className="empty-hint">Os logs aparecem em tempo real quando há tráfego</span>
             </div>
           ) : (
-            <table className="traffic-table">
+            <table className="traffic-table wireshark-table">
               <thead>
                 <tr>
                   <th>Hora</th>
+                  <th>Tipo</th>
                   <th>IP</th>
-                  <th>Evento</th>
-                  <th>Severidade</th>
-                  <th>Detalhes</th>
-                  <th>Path</th>
-                  <th>Ações</th>
+                  <th>Método</th>
+                  <th>Caminho</th>
+                  <th>Estado</th>
+                  <th>Localização</th>
+                  <th>Informação</th>
                 </tr>
               </thead>
               <tbody>
-                {suspicious.map((evt) => (
-                  <tr key={evt.id} className={`severity-row ${getSeverityClass(evt.severity)}`}>
-                    <td className="col-time">{formatTime(evt.created_at)}</td>
-                    <td className="col-ip"><code>{evt.ip}</code></td>
+                {filteredDetailedLogs.map((entry) => (
+                  <tr key={entry.id} className={getDetailedRowClass(entry)}>
+                    <td className="col-time-ws">{formatTimeWS(entry.timestamp)}</td>
                     <td>
-                      <span className={`event-badge event-${evt.event}`}>
-                        <i className={`fa-solid ${getEventIcon(evt.event)}`}></i>
-                        {getEventLabel(evt.event)}
+                      <span className={`type-badge type-${entry._type === 'threat' ? 'threat' : entry.method === 'PAGE' ? 'page' : 'request'}`}>
+                        <i className={`fa-solid ${getTypeIcon(entry)}`}></i>
+                        {getTypeLabel(entry)}
                       </span>
                     </td>
+                    <td className="col-ip"><code>{entry.ip}</code></td>
                     <td>
-                      <span className={`severity-badge ${getSeverityClass(evt.severity)}`}>
-                        {evt.severity.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="col-details">{evt.details}</td>
-                    <td className="col-path" title={evt.path}>{evt.path}</td>
-                    <td className="col-actions">
-                      {!blockedSet.has(evt.ip) ? (
-                        <button
-                          className="action-btn block-btn"
-                          onClick={() => openBlockModal(evt.ip)}
-                          title="Bloquear IP"
-                        >
-                          <i className="fa-solid fa-ban"></i>
-                        </button>
-                      ) : (
-                        <span className="already-blocked" title="IP já bloqueado">
-                          <i className="fa-solid fa-lock"></i>
+                      {entry._type === 'threat' ? (
+                        <span className={`event-badge event-${entry.event}`}>
+                          <i className={`fa-solid ${getEventIcon(entry.event || '')}`}></i>
+                          {getEventLabel(entry.event || '')}
                         </span>
+                      ) : (
+                        <span className={`method-badge ${getMethodClass(entry.method)}`}>
+                          {entry.method}
+                        </span>
+                      )}
+                    </td>
+                    <td className="col-path" title={entry.path}>{entry.path}</td>
+                    <td>
+                      {entry._type === 'threat' ? (
+                        <span className={`severity-badge ${getSeverityClass(entry.severity || '')}`}>
+                          {(entry.severity || '').toUpperCase()}
+                        </span>
+                      ) : (
+                        <span className={`status-badge ${getStatusClass(entry.status_code)}`}>
+                          {entry.status_code}
+                        </span>
+                      )}
+                    </td>
+                    <td className="col-location">
+                      {entry.country || '—'}
+                      {entry.city ? `, ${entry.city}` : ''}
+                    </td>
+                    <td className="col-info">
+                      {entry._type === 'threat' ? (
+                        <div className="threat-info">
+                          <span className="threat-detail">{entry.details}</span>
+                          {entry.auto_blocked && (
+                            <span className="auto-blocked-badge">
+                              <i className="fa-solid fa-robot"></i>
+                              Auto-bloqueado
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="request-info">
+                          {entry.response_time_ms > 0 && (
+                            <span className="response-time">{entry.response_time_ms}ms</span>
+                          )}
+                          {entry.is_vpn && (
+                            <span className="vpn-badge small">VPN</span>
+                          )}
+                          {entry.method === 'PAGE' && !entry.is_vpn && (
+                            <span className="info-label-page">
+                              <i className="fa-solid fa-eye"></i> Visita de página
+                            </span>
+                          )}
+                          {entry.method !== 'PAGE' && entry.response_time_ms === 0 && !entry.is_vpn && (
+                            <span className="info-label-api">
+                              <i className="fa-solid fa-server"></i> API call
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>

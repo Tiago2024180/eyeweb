@@ -5,13 +5,14 @@ Eye Web Backend — Traffic Monitor Router
 API endpoints for the admin traffic monitoring dashboard.
 
 Endpoints (PROTEGIDOS — requerem token admin):
-    GET  /admin/traffic/stats       — Dashboard statistics
-    GET  /admin/traffic/connections  — Active connections
-    GET  /admin/traffic/logs        — Paginated request logs
-    GET  /admin/traffic/suspicious  — Suspicious activity events
-    GET  /admin/traffic/blocked     — Blocked IPs list
-    POST /admin/traffic/block-ip    — Manually block an IP
-    POST /admin/traffic/unblock-ip  — Unblock an IP
+    GET  /admin/traffic/stats          — Dashboard statistics
+    GET  /admin/traffic/connections    — Active connections
+    GET  /admin/traffic/logs           — Paginated request logs
+    GET  /admin/traffic/suspicious     — Suspicious activity events
+    GET  /admin/traffic/detailed-logs  — Wireshark-style combined timeline
+    GET  /admin/traffic/blocked        — Blocked IPs list
+    POST /admin/traffic/block-ip       — Manually block an IP
+    POST /admin/traffic/unblock-ip     — Unblock an IP
 
 Endpoints (PÚBLICOS — sem autenticação):
     GET  /check-ip                  — Check if IP is blocked (middleware)
@@ -290,6 +291,99 @@ async def get_suspicious_events(
         return {"events": r.json(), "total": _parse_count(r)}
     except Exception:
         return {"events": [], "total": 0}
+
+
+# ═══════════════════════════════════════════════════════
+# DETAILED LOGS — Wireshark-style unified timeline
+# ═══════════════════════════════════════════════════════
+
+
+@router.get("/detailed-logs")
+async def get_detailed_logs(
+    limit: int = Query(200, ge=1, le=500),
+):
+    """
+    Wireshark-style unified timeline — merges traffic_logs + traffic_suspicious
+    into a single chronological feed, newest first.
+    Filtering (by IP / type) is done client-side for instant UX.
+    """
+    url = _url()
+    headers = {**_headers(), "Prefer": "return=representation"}
+    if not url:
+        raise HTTPException(500, "Supabase not configured")
+
+    entries: list[dict] = []
+
+    # ─── Fetch traffic_logs (requests) ───
+    q_logs = (
+        f"{url}/rest/v1/traffic_logs?select=*"
+        f"&order=created_at.desc&limit={limit}"
+        f"&ip=not.in.(127.0.0.1,::1,localhost)"
+    )
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(q_logs, headers=headers, timeout=10.0)
+        if r.status_code == 200:
+            for log in r.json():
+                entries.append({
+                    "_type": "request",
+                    "id": f"req_{log['id']}",
+                    "ip": log.get("ip", ""),
+                    "timestamp": log.get("created_at", ""),
+                    "method": log.get("method", ""),
+                    "path": log.get("path", ""),
+                    "status_code": log.get("status_code", 0),
+                    "user_agent": log.get("user_agent", ""),
+                    "country": log.get("country", ""),
+                    "city": log.get("city", ""),
+                    "is_vpn": log.get("is_vpn", False),
+                    "vpn_provider": log.get("vpn_provider", ""),
+                    "response_time_ms": log.get("response_time_ms", 0),
+                    "event": None,
+                    "severity": None,
+                    "details": None,
+                    "auto_blocked": False,
+                })
+    except Exception:
+        pass
+
+    # ─── Fetch traffic_suspicious (threats) ───
+    q_threats = (
+        f"{url}/rest/v1/traffic_suspicious?select=*"
+        f"&order=created_at.desc&limit={limit}"
+    )
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.get(q_threats, headers=headers, timeout=10.0)
+        if r.status_code == 200:
+            for evt in r.json():
+                entries.append({
+                    "_type": "threat",
+                    "id": f"thr_{evt['id']}",
+                    "ip": evt.get("ip", ""),
+                    "timestamp": evt.get("created_at", ""),
+                    "method": "",
+                    "path": evt.get("path", ""),
+                    "status_code": 0,
+                    "user_agent": "",
+                    "country": "",
+                    "city": "",
+                    "is_vpn": False,
+                    "vpn_provider": "",
+                    "response_time_ms": 0,
+                    "event": evt.get("event", ""),
+                    "severity": evt.get("severity", ""),
+                    "details": evt.get("details", ""),
+                    "auto_blocked": evt.get("auto_blocked", False),
+                })
+    except Exception:
+        pass
+
+    # ─── Sort by timestamp descending and trim ───
+    entries.sort(key=lambda e: e["timestamp"], reverse=True)
+    entries = entries[:limit]
+
+    return {"entries": entries, "total": len(entries)}
 
 
 @router.get("/blocked")
