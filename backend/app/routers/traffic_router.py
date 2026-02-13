@@ -24,6 +24,7 @@ import os
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from ipaddress import ip_address, ip_network
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -117,6 +118,33 @@ class RegisterFPRequest(BaseModel):
 # ─── LOCALHOST IPs to exclude from dashboard ─────────
 _LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost", "unknown", ""}
 
+# ─── Infrastructure IPs to hide (Vercel, Render, n8n, HuggingFace, AWS) ───
+# These are cloud-provider CIDR ranges that generate noise in the dashboard.
+_INFRA_CIDRS = [
+    # AWS eu-west-3 (Paris) — n8n workflows / HuggingFace dataset
+    ip_network("13.36.0.0/14"),     # 13.36.x – 13.39.x
+    ip_network("15.188.0.0/16"),    # 15.188.x.x
+    ip_network("35.180.0.0/16"),    # 35.180.x.x
+    ip_network("52.47.0.0/16"),     # 52.47.x.x
+    # DigitalOcean — Vercel edge / ISR / cron
+    ip_network("64.23.0.0/16"),     # 64.23.x.x
+    ip_network("146.190.0.0/16"),   # 146.190.x.x
+    ip_network("147.182.0.0/16"),   # 147.182.x.x
+    ip_network("164.92.0.0/16"),    # 164.92.x.x
+    ip_network("165.232.0.0/16"),   # 165.232.x.x
+    # Google Cloud — Render health checks
+    ip_network("34.82.0.0/16"),     # 34.82.x.x
+    ip_network("35.197.0.0/16"),    # 35.197.x.x
+]
+
+def _is_infra_ip(ip_str: str) -> bool:
+    """Check if an IP belongs to known infrastructure CIDRs."""
+    try:
+        addr = ip_address(ip_str)
+        return any(addr in cidr for cidr in _INFRA_CIDRS)
+    except (ValueError, TypeError):
+        return False
+
 # ─── ENDPOINTS ────────────────────────────────────────
 
 @router.get("/connections")
@@ -156,7 +184,7 @@ async def get_connections():
         seen: dict = {}
         for row in rows:
             ip = row.get("ip", "")
-            if not ip or ip in _LOCALHOST_IPS:
+            if not ip or ip in _LOCALHOST_IPS or _is_infra_ip(ip):
                 continue
 
             fp = row.get("fingerprint_hash", "") or ""
@@ -297,7 +325,8 @@ async def get_traffic_logs(
         if r.status_code != 200:
             return {"logs": [], "total": 0}
 
-        return {"logs": r.json(), "total": _parse_count(r)}
+        logs = [l for l in r.json() if not _is_infra_ip(l.get("ip", ""))]
+        return {"logs": logs, "total": len(logs)}
     except Exception:
         return {"logs": [], "total": 0}
 
@@ -359,6 +388,8 @@ async def get_detailed_logs(
             r = await c.get(q_logs, headers=headers, timeout=10.0)
         if r.status_code == 200:
             for log in r.json():
+                if _is_infra_ip(log.get("ip", "")):
+                    continue
                 entries.append({
                     "_type": "request",
                     "id": f"req_{log['id']}",
