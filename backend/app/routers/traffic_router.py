@@ -109,6 +109,7 @@ class UnblockDeviceRequest(BaseModel):
 
 class RegisterFPRequest(BaseModel):
     hash: str
+    hardwareHash: str = ""
     components: dict
     ip: str = ""
 
@@ -493,10 +494,11 @@ async def check_ip_blocked(
     path: str = Query("", description="Page path (optional — logs visit)"),
     ua: str = Query("", description="User-Agent (optional)"),
     fp: str = Query("", description="Device fingerprint hash (optional)"),
+    hwfp: str = Query("", description="Hardware fingerprint hash (anti browser-switch)"),
 ):
     """
     Quick blocked check — used by Next.js middleware to enforce full site block.
-    Checks both IP and device fingerprint.
+    Checks IP, device fingerprint, AND hardware fingerprint.
     Also logs a PAGE visit if 'path' is provided.
     Rate limited para evitar abuso.
     """
@@ -515,6 +517,10 @@ async def check_ip_blocked(
     # Verificar bloqueio por fingerprint (se fornecido)
     if not blocked and fp:
         blocked = ts.is_device_blocked(fp)
+
+    # Verificar bloqueio por hardware hash (anti browser-switch)
+    if not blocked and hwfp:
+        blocked = ts.is_hardware_blocked(hwfp)
 
     # Sempre registar heartbeat (mantém estado "online" no dashboard)
     if not blocked:
@@ -617,5 +623,9 @@ async def register_fingerprint(req: RegisterFPRequest):
         return {"blocked": False, "rate_limited": True}
 
     ts = TrafficService.get()
-    blocked = await ts.register_fingerprint(ip, req.hash, req.components)
+    # Incluir hardware hash nos componentes para o backend guardar
+    comps = req.components.copy() if req.components else {}
+    if req.hardwareHash:
+        comps["hardware_hash"] = req.hardwareHash
+    blocked = await ts.register_fingerprint(ip, req.hash, comps)
     return {"blocked": blocked}

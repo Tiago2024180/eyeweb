@@ -10,24 +10,33 @@
  *   Canvas=25, WebGL=30, Audio=20, Screen=10, CPU=5, RAM=3, TZ=3, Platform=2, UA=2
  *
  * Total: 100 pontos. Threshold de match: ≥70 pontos = mesmo dispositivo.
+ *
+ * HARDWARE HASH (anti-browser-switch):
+ *   Hash separado gerado APENAS com componentes de hardware que NÃO mudam
+ *   entre browsers (WebGL GPU, Screen, CPU, RAM, TZ, Platform, DPR, TouchPoints).
+ *   Permite detetar o mesmo dispositivo mesmo que mude de browser ou use VPN.
  */
 
 // ─── TYPES ───────────────────────────────────────────
 
 export interface FingerprintComponents {
-  canvas: string;    // SHA-256 do canvas rendering
-  webgl: string;     // GPU vendor~renderer
-  audio: string;     // Audio context fingerprint value
-  screen: string;    // WxHxColorDepth
-  cpu: number;       // navigator.hardwareConcurrency
-  ram: number;       // navigator.deviceMemory
-  tz: string;        // Timezone (ex: Europe/Lisbon)
-  platform: string;  // navigator.platform
-  ua: string;        // User agent (truncated)
+  canvas: string;      // SHA-256 do canvas rendering
+  webgl: string;       // GPU vendor~renderer
+  audio: string;       // Audio context fingerprint value
+  screen: string;      // WxHxColorDepth
+  cpu: number;         // navigator.hardwareConcurrency
+  ram: number;         // navigator.deviceMemory
+  tz: string;          // Timezone (ex: Europe/Lisbon)
+  platform: string;    // navigator.platform
+  ua: string;          // User agent (truncated)
+  dpr: number;         // devicePixelRatio (hardware-invariant)
+  touchPoints: number; // maxTouchPoints (hardware-invariant)
+  langs: string;       // Primary language (OS setting)
 }
 
 export interface DeviceFingerprint {
   hash: string;
+  hardwareHash: string; // Hash de APENAS componentes hardware (anti browser-switch)
   components: FingerprintComponents;
 }
 
@@ -155,6 +164,9 @@ export async function generateFingerprint(): Promise<DeviceFingerprint> {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
   const platform = navigator.platform || '';
   const ua = navigator.userAgent.slice(0, 200);
+  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+  const touchPoints = navigator.maxTouchPoints || 0;
+  const langs = (navigator.languages?.[0] || navigator.language || '');
 
   const components: FingerprintComponents = {
     canvas: await sha256(canvasRaw),
@@ -166,10 +178,29 @@ export async function generateFingerprint(): Promise<DeviceFingerprint> {
     tz,
     platform,
     ua,
+    dpr,
+    touchPoints,
+    langs,
   };
 
+  // Hash completo (todos os componentes — identifica browser+device exacto)
   const hash = await sha256(JSON.stringify(components));
-  return { hash, components };
+
+  // Hardware Hash — APENAS componentes que NÃO mudam entre browsers.
+  // Mesmo GPU, ecrã, CPU, RAM, timezone, etc. = mesmo hardware hash.
+  // Isto deteta o dispositivo mesmo que use outro browser ou limpe cookies.
+  const hardwareHash = await sha256([
+    webgl,        // GPU vendor~renderer (hardware-unique)
+    screenFp,     // WxHxColorDepth
+    cpu,          // CPU cores
+    ram,          // RAM
+    tz,           // Timezone
+    platform,     // OS
+    dpr,          // devicePixelRatio
+    touchPoints,  // maxTouchPoints
+  ].join('|'));
+
+  return { hash, hardwareHash, components };
 }
 
 // ─── Cookie management (middleware pode ler) ─────────
@@ -181,6 +212,17 @@ export function setFingerprintCookie(hash: string): void {
 
 export function getFingerprintCookie(): string {
   const match = document.cookie.match(/(?:^|;\s*)__ewfp=([^;]*)/);
+  return match ? match[1] : '';
+}
+
+// Hardware hash cookie — sobrevive troca de browser (middleware lê)
+export function setHardwareFingerprintCookie(hwHash: string): void {
+  const secure = location.protocol === 'https:' ? ';Secure' : '';
+  document.cookie = `__ewhw=${hwHash};path=/;max-age=31536000;SameSite=Lax${secure}`;
+}
+
+export function getHardwareFingerprintCookie(): string {
+  const match = document.cookie.match(/(?:^|;\s*)__ewhw=([^;]*)/);
   return match ? match[1] : '';
 }
 

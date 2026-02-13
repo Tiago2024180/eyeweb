@@ -13,6 +13,7 @@ import { usePathname } from 'next/navigation';
 import {
   generateFingerprint,
   setFingerprintCookie,
+  setHardwareFingerprintCookie,
   getFingerprintCookie,
   cacheFingerprint,
   getCachedFingerprint,
@@ -40,14 +41,19 @@ export default function PageTracker() {
           cacheFingerprint(fp);
         }
 
-        // Definir cookie para o middleware poder ler
+        // Definir cookies para o middleware poder ler
         setFingerprintCookie(fp.hash);
+        setHardwareFingerprintCookie(fp.hardwareHash);
 
         // Registar no backend (inclui fuzzy matching contra dispositivos bloqueados)
         const r = await fetch('/api/register-fp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ hash: fp.hash, components: fp.components }),
+          body: JSON.stringify({
+            hash: fp.hash,
+            hardwareHash: fp.hardwareHash,
+            components: fp.components,
+          }),
           keepalive: true,
         });
 

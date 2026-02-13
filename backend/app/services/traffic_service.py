@@ -100,6 +100,7 @@ class TrafficService:
         self._geo_cache: Dict[str, dict] = {}
         self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
         self.blocked_devices: set = set()  # fingerprint hashes bloqueados
+        self.blocked_hardware_hashes: set = set()  # hardware hashes bloqueados (anti browser-switch)
         self._blocked_fp_components: Dict[str, dict] = {}  # fp_hash → components (para fuzzy matching)
         self._fp_ip_map: Dict[str, set] = {}  # fp_hash → set of IPs associados
         self._initialized = False
@@ -119,7 +120,7 @@ class TrafficService:
         await self._refresh_blocked()
         await self._refresh_blocked_devices()
         self._initialized = True
-        logger.info(f"🛡️  Traffic monitor initialized ({len(self.blocked_ips)} IPs, {len(self.blocked_devices)} devices bloqueados)")
+        logger.info(f"🛡️  Traffic monitor initialized ({len(self.blocked_ips)} IPs, {len(self.blocked_devices)} devices, {len(self.blocked_hardware_hashes)} hw-hashes bloqueados)")
 
     async def _refresh_blocked(self):
         """Refresh blocked IPs cache from Supabase."""
@@ -149,6 +150,13 @@ class TrafficService:
                         row["fingerprint_hash"]: row.get("components", {})
                         for row in data if row.get("components")
                     }
+                    # Extrair hardware hashes de componentes bloqueados (anti browser-switch)
+                    self.blocked_hardware_hashes = set()
+                    for row in data:
+                        comps = row.get("components") or {}
+                        hw_hash = comps.get("hardware_hash", "")
+                        if hw_hash:
+                            self.blocked_hardware_hashes.add(hw_hash)
                     # Também guardar mapa de IPs por fingerprint
                     for row in data:
                         fp = row["fingerprint_hash"]
@@ -495,6 +503,14 @@ class TrafficService:
             return False
         return fp_hash in self.blocked_devices
 
+    def is_hardware_blocked(self, hw_hash: str) -> bool:
+        """Check if a hardware fingerprint hash is blocked.
+        Hardware hashes use ONLY browser-independent components (GPU, screen, CPU, RAM, etc.)
+        so they survive browser changes. This catches VPN+new-browser evasion."""
+        if not hw_hash:
+            return False
+        return hw_hash in self.blocked_hardware_hashes
+
     def _fuzzy_match_score(self, comp_a: dict, comp_b: dict) -> int:
         """
         Compare two fingerprint component sets using weighted scoring.
@@ -521,6 +537,22 @@ class TrafficService:
 
         # 1. Exact hash check
         if fp_hash in self.blocked_devices:
+            return True
+
+        # 1b. Hardware hash check (anti browser-switch)
+        hw_hash = components.get("hardware_hash", "") if components else ""
+        if hw_hash and hw_hash in self.blocked_hardware_hashes:
+            logger.info(
+                f"🔍 Hardware hash match: {hw_hash[:12]}... — same device, different browser"
+            )
+            await self.block_device(
+                fp_hash,
+                f"Auto: hardware match ({hw_hash[:12]}...)",
+                "system",
+                components=components,
+            )
+            if ip and ip not in self.blocked_ips:
+                await self.block_ip(ip, f"Auto: hardware bloqueado ({hw_hash[:12]}...)", "system")
             return True
 
         # 2. Fuzzy matching against all blocked fingerprints
@@ -642,6 +674,10 @@ class TrafficService:
         self.blocked_devices.add(fp_hash)
         if components:
             self._blocked_fp_components[fp_hash] = components
+            # Também guardar hardware hash para deteção cross-browser
+            hw_hash = components.get("hardware_hash", "")
+            if hw_hash:
+                self.blocked_hardware_hashes.add(hw_hash)
 
         logger.info(f"🚫 Device bloqueado: {fp_hash[:12]}... — {reason} ({blocked_by}) [{len(associated_ips)} IPs]")
 
@@ -681,7 +717,12 @@ class TrafficService:
 
         # Atualizar cache
         self.blocked_devices.discard(fp_hash)
-        self._blocked_fp_components.pop(fp_hash, None)
+        # Remover hardware hash associado
+        old_comps = self._blocked_fp_components.pop(fp_hash, None)
+        if old_comps:
+            hw_hash = old_comps.get("hardware_hash", "")
+            if hw_hash:
+                self.blocked_hardware_hashes.discard(hw_hash)
         self._fp_ip_map.pop(fp_hash, None)
 
         logger.info(f"✅ Device desbloqueado: {fp_hash[:12]}... [{len(associated_ips)} IPs]")

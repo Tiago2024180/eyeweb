@@ -65,15 +65,17 @@ export async function middleware(req: NextRequest) {
   if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
     const pagePath = req.nextUrl.pathname;
     const userAgent = req.headers.get('user-agent') || '';
-    // Ler fingerprint do cookie (definido pelo PageTracker no client-side)
+    // Ler fingerprints dos cookies (definidos pelo PageTracker no client-side)
     const fpCookie = req.cookies.get('__ewfp')?.value || '';
+    const hwCookie = req.cookies.get('__ewhw')?.value || '';
     // Não enviar path para: rotas admin ou /api/ (evita poluir traffic_logs)
     const isInternal = pagePath.startsWith('/admin') || pagePath.startsWith('/api/');
     const isBlocked = await checkBlocked(
       clientIp,
       isInternal ? '' : pagePath,
       isInternal ? '' : userAgent,
-      fpCookie
+      fpCookie,
+      hwCookie
     );
     if (isBlocked) {
       return blockedResponse();
@@ -191,9 +193,9 @@ export async function middleware(req: NextRequest) {
 // BLOCK CHECKER — consulta o backend (IP + fingerprint) com cache
 // ═══════════════════════════════════════════════════════
 
-async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: string = ''): Promise<boolean> {
-  // 1. Cache check — usar chave combinada IP:FP para evitar falsos negativos
-  const cacheKey = fp ? `${ip}:${fp}` : ip;
+async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: string = '', hwfp: string = ''): Promise<boolean> {
+  // 1. Cache check — usar chave combinada IP:FP:HW para evitar falsos negativos
+  const cacheKey = hwfp ? `${ip}:${fp}:${hwfp}` : fp ? `${ip}:${fp}` : ip;
   const cached = ipCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL && cached.blocked) {
     return true;
@@ -204,7 +206,7 @@ async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: 
   const lastVisit = visitCache.get(visitKey) || 0;
   const skipVisitLog = Date.now() - lastVisit < VISIT_TTL;
 
-  // 3. Perguntar ao backend (envia path+ua+fp para registar visita)
+  // 3. Perguntar ao backend (envia path+ua+fp+hwfp para registar visita)
   try {
     const params = new URLSearchParams({ ip });
     if (path && !skipVisitLog) {
@@ -213,6 +215,8 @@ async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: 
     }
     // Enviar fingerprint se disponível (do cookie __ewfp)
     if (fp) params.set('fp', fp);
+    // Enviar hardware fingerprint (do cookie __ewhw) — anti browser-switch
+    if (hwfp) params.set('hwfp', hwfp);
 
     const r = await fetch(
       `${BACKEND_URL}/api/check-ip?${params.toString()}`,

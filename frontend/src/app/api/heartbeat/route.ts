@@ -19,13 +19,15 @@ export async function POST(req: NextRequest) {
     req.headers.get('x-real-ip') ||
     '127.0.0.1';
 
-  // Ler fingerprint do cookie (definido pelo PageTracker no client-side)
+  // Ler fingerprints dos cookies (definidos pelo PageTracker no client-side)
   const fp = req.cookies.get('__ewfp')?.value || '';
+  const hwfp = req.cookies.get('__ewhw')?.value || '';
 
   try {
-    // Chamar check-ip do backend com o IP real + fingerprint
+    // Chamar check-ip do backend com o IP real + fingerprints
     const params = new URLSearchParams({ ip });
     if (fp) params.set('fp', fp);
+    if (hwfp) params.set('hwfp', hwfp);
 
     const r = await fetch(
       `${BACKEND_URL}/api/check-ip?${params.toString()}`,
