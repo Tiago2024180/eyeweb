@@ -1070,3 +1070,116 @@
     max-width: 150px;
   }
 }
+
+/* ═══════════════════════════════════════════════════════
+   DEVICE FINGERPRINTING STYLES
+   ═══════════════════════════════════════════════════════ */
+
+/* ─── Device badge (fingerprint hash) ─── */
+.device-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  font-size: 0.78rem;
+  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid rgba(139, 92, 246, 0.25);
+}
+
+.device-badge i {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.device-badge.device-unknown {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.no-fp {
+  color: rgba(255, 255, 255, 0.2);
+  font-size: 0.85rem;
+}
+
+/* ─── IP tags (multiple IPs per device) ─── */
+.col-ips {
+  max-width: 260px;
+}
+
+.ip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 1px 3px 1px 0;
+}
+
+.ip-tag code {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.ip-tag .vpn-badge.small {
+  font-size: 0.6rem;
+  padding: 1px 4px;
+}
+
+/* ─── Blocked section headers ─── */
+.blocked-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.blocked-section-header i {
+  color: #ef4444;
+  font-size: 0.8rem;
+}
+
+/* ─── Block modal enhancements ─── */
+.modal-target-info {
+  padding: 0.75rem;
+  margin-bottom: 1rem;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 8px;
+}
+
+.modal-fp {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #a78bfa;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.modal-ip-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+}
+
+.modal-ip-note i {
+  color: #f59e0b;
+  font-size: 0.7rem;
+}
+
+/* ─── Device column in table ─── */
+.col-device {
+  min-width: 120px;
+}

@@ -98,6 +98,21 @@ class UnblockIPRequest(BaseModel):
     ip: str
 
 
+class BlockDeviceRequest(BaseModel):
+    fingerprint_hash: str
+    reason: str
+
+
+class UnblockDeviceRequest(BaseModel):
+    fingerprint_hash: str
+
+
+class RegisterFPRequest(BaseModel):
+    hash: str
+    components: dict
+    ip: str = ""
+
+
 # ─── LOCALHOST IPs to exclude from dashboard ─────────
 _LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost", "unknown", ""}
 
@@ -106,8 +121,8 @@ _LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost", "unknown", ""}
 @router.get("/connections")
 async def get_connections():
     """
-    Unique connections today — one row per IP.
-    Shows: IP, location, VPN, online/offline, first seen, method.
+    Unique connections today — one row per device (fingerprint).
+    Falls back to IP-based grouping when fingerprint is not available.
     Data is for today only (UTC day).
     """
     from ..services.traffic_service import TrafficService
@@ -118,16 +133,13 @@ async def get_connections():
 
     ts = TrafficService.get()
 
-    # Today start (UTC midnight) — usar 'Z' em vez de '+00:00' para evitar
-    # que PostgREST interprete '+' como espaço na query string
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).strftime('%Y-%m-%dT%H:%M:%SZ')
 
     try:
-        # Get all distinct IPs that visited today
         async with httpx.AsyncClient() as c:
             r = await c.get(
-                f"{url}/rest/v1/traffic_logs?select=ip,country,city,is_vpn,vpn_provider,method,created_at"
+                f"{url}/rest/v1/traffic_logs?select=ip,country,city,is_vpn,vpn_provider,method,created_at,fingerprint_hash"
                 f"&created_at=gte.{today_start}&order=created_at.asc",
                 headers=headers, timeout=10.0,
             )
@@ -139,15 +151,20 @@ async def get_connections():
         if not rows:
             return {"connections": []}
 
-        # Group by IP — count requests + keep geo info
+        # Group by fingerprint_hash (when available) or IP
         seen: dict = {}
         for row in rows:
             ip = row.get("ip", "")
             if not ip or ip in _LOCALHOST_IPS:
                 continue
-            if ip not in seen:
-                seen[ip] = {
-                    "ip": ip,
+
+            fp = row.get("fingerprint_hash", "") or ""
+            group_key = fp if fp else f"ip:{ip}"
+
+            if group_key not in seen:
+                seen[group_key] = {
+                    "fingerprint_hash": fp,
+                    "ips": [],
                     "country": row.get("country", ""),
                     "city": row.get("city", ""),
                     "is_vpn": row.get("is_vpn", False),
@@ -155,26 +172,42 @@ async def get_connections():
                     "method": row.get("method", ""),
                     "requests": 0,
                     "online": False,
+                    "_ips_set": set(),
                     "_last_seen": "",
                 }
-            seen[ip]["requests"] += 1
-            # Prefer PAGE over GET (PAGE = real page visit, GET = internal API call)
-            if row.get("method", "") == "PAGE":
-                seen[ip]["method"] = "PAGE"
+
+            conn = seen[group_key]
+            conn["requests"] += 1
+
+            # Track unique IPs
+            if ip not in conn["_ips_set"]:
+                conn["_ips_set"].add(ip)
+                conn["ips"].append(ip)
+
+            # Track VPN flag
+            if row.get("is_vpn"):
+                conn["is_vpn"] = True
+
+            # Prefer PAGE over GET
+            if row.get("method") == "PAGE":
+                conn["method"] = "PAGE"
+
             # Track most recent activity (rows are ordered ASC)
-            seen[ip]["_last_seen"] = row.get("created_at", "")
+            conn["_last_seen"] = row.get("created_at", "")
 
         # Determine online: heartbeat (in-memory) OR recent Supabase activity (< 2 min)
         for conn in seen.values():
-            last_seen = conn.pop("_last_seen", "")
+            has_heartbeat = any(ts.is_online(ip) for ip in conn["_ips_set"])
             recent = False
+            last_seen = conn.pop("_last_seen", "")
             if last_seen:
                 try:
                     ls_dt = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
                     recent = (now - ls_dt).total_seconds() < 120
                 except Exception:
                     pass
-            conn["online"] = ts.is_online(conn["ip"]) or recent
+            conn["online"] = has_heartbeat or recent
+            del conn["_ips_set"]
 
         # Sort: online first, then by most requests
         connections = sorted(
@@ -388,7 +421,7 @@ async def get_detailed_logs(
 
 @router.get("/blocked")
 async def get_blocked_ips():
-    """All blocked IPs, newest first."""
+    """All blocked IPs and devices, newest first."""
     url = _url()
     headers = {**_headers(), "Prefer": "return=representation"}
     if not url:
@@ -396,17 +429,21 @@ async def get_blocked_ips():
 
     try:
         async with httpx.AsyncClient() as c:
-            r = await c.get(
+            r1 = await c.get(
                 f"{url}/rest/v1/traffic_blocked_ips?select=*&order=created_at.desc",
                 headers=headers, timeout=10.0,
             )
+            r2 = await c.get(
+                f"{url}/rest/v1/traffic_blocked_devices?select=*&order=created_at.desc",
+                headers=headers, timeout=10.0,
+            )
 
-        if r.status_code != 200:
-            return {"blocked": []}
+        blocked_ips = r1.json() if r1.status_code == 200 else []
+        blocked_devices = r2.json() if r2.status_code == 200 else []
 
-        return {"blocked": r.json()}
+        return {"blocked": blocked_ips, "blocked_devices": blocked_devices}
     except Exception:
-        return {"blocked": []}
+        return {"blocked": [], "blocked_devices": []}
 
 
 @router.post("/block-ip")
@@ -427,6 +464,24 @@ async def unblock_ip(req: UnblockIPRequest):
     return {"success": True, "message": f"IP {req.ip} desbloqueado"}
 
 
+@router.post("/block-device")
+async def block_device(req: BlockDeviceRequest):
+    """Block a device by fingerprint hash. Also blocks all associated IPs."""
+    from ..services.traffic_service import TrafficService
+    ts = TrafficService.get()
+    await ts.block_device(req.fingerprint_hash, req.reason, "admin")
+    return {"success": True, "message": f"Device {req.fingerprint_hash[:12]}... bloqueado"}
+
+
+@router.post("/unblock-device")
+async def unblock_device(req: UnblockDeviceRequest):
+    """Unblock a device and all its associated IPs."""
+    from ..services.traffic_service import TrafficService
+    ts = TrafficService.get()
+    await ts.unblock_device(req.fingerprint_hash)
+    return {"success": True, "message": f"Device {req.fingerprint_hash[:12]}... desbloqueado"}
+
+
 # ═══════════════════════════════════════════════════════
 # PUBLIC ENDPOINTS — sem autenticação (middleware / frontend beacon)
 # ═══════════════════════════════════════════════════════
@@ -437,10 +492,12 @@ async def check_ip_blocked(
     ip: str = Query(..., description="IP to check"),
     path: str = Query("", description="Page path (optional — logs visit)"),
     ua: str = Query("", description="User-Agent (optional)"),
+    fp: str = Query("", description="Device fingerprint hash (optional)"),
 ):
     """
     Quick blocked check — used by Next.js middleware to enforce full site block.
-    Also logs a PAGE visit if 'path' is provided (server-to-server, no CORS issues).
+    Checks both IP and device fingerprint.
+    Also logs a PAGE visit if 'path' is provided.
     Rate limited para evitar abuso.
     """
     import asyncio
@@ -451,7 +508,13 @@ async def check_ip_blocked(
         return {"blocked": False, "rate_limited": True}
 
     ts = TrafficService.get()
+
+    # Verificar bloqueio por IP
     blocked = ts.is_blocked(ip)
+
+    # Verificar bloqueio por fingerprint (se fornecido)
+    if not blocked and fp:
+        blocked = ts.is_device_blocked(fp)
 
     # Sempre registar heartbeat (mantém estado "online" no dashboard)
     if not blocked:
@@ -466,6 +529,7 @@ async def check_ip_blocked(
             status_code=200,
             user_agent=(ua or "")[:500],
             response_time_ms=0,
+            fingerprint_hash=fp,
         ))
 
     return {"blocked": blocked}
@@ -535,3 +599,23 @@ async def heartbeat(request: Request):
     ts = TrafficService.get()
     ts.heartbeat(ip)
     return {"ok": True}
+
+
+@visit_router.post("/register-fingerprint")
+async def register_fingerprint(req: RegisterFPRequest):
+    """
+    Register device fingerprint from the frontend.
+    Stores fingerprint components, does fuzzy matching against blocked devices.
+    Returns { blocked: true } if the device should be blocked.
+    """
+    from ..services.traffic_service import TrafficService
+
+    ip = req.ip or ""
+
+    # Rate limit por IP
+    if ip and _check_public_rate_limit(ip):
+        return {"blocked": False, "rate_limited": True}
+
+    ts = TrafficService.get()
+    blocked = await ts.register_fingerprint(ip, req.hash, req.components)
+    return {"blocked": blocked}

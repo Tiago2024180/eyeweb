@@ -14,6 +14,7 @@ import time
 import json
 import logging
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Dict, Optional
 
 import httpx
@@ -47,6 +48,21 @@ RATE_LIMIT_MAX = 100         # requests per window
 RATE_LIMIT_AUTOBLOCK = 200   # auto-block at 2x
 BRUTE_FORCE_WINDOW = 300     # 5 minutes
 BRUTE_FORCE_MAX = 10         # login attempts
+
+# ─── FINGERPRINT WEIGHTS (fuzzy matching) ────────────
+# Total = 100 pontos. Threshold ≥70 = mesmo dispositivo.
+FP_WEIGHTS = {
+    "canvas": 25,     # Canvas rendering (GPU/driver dependent)
+    "webgl": 30,      # GPU vendor~renderer (hardware unique)
+    "audio": 20,      # Audio context (DAC/driver unique)
+    "screen": 10,     # Screen resolution + color depth
+    "cpu": 5,         # CPU cores
+    "ram": 3,         # RAM (deviceMemory)
+    "tz": 3,          # Timezone
+    "platform": 2,    # OS platform
+    "ua": 2,          # User-Agent (changes with updates)
+}
+FP_MATCH_THRESHOLD = 70      # minimum score to consider same device
 
 
 class TrafficService:
@@ -83,6 +99,9 @@ class TrafficService:
         self._req_counts: Dict[str, list] = defaultdict(list)
         self._geo_cache: Dict[str, dict] = {}
         self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
+        self.blocked_devices: set = set()  # fingerprint hashes bloqueados
+        self._blocked_fp_components: Dict[str, dict] = {}  # fp_hash → components (para fuzzy matching)
+        self._fp_ip_map: Dict[str, set] = {}  # fp_hash → set of IPs associados
         self._initialized = False
 
     @property
@@ -94,12 +113,13 @@ class TrafficService:
     # ═══════════════════════════════════════════════════
 
     async def init(self):
-        """Load blocked IPs from Supabase on startup."""
+        """Load blocked IPs and devices from Supabase on startup."""
         if self._initialized or not self._configured:
             return
         await self._refresh_blocked()
+        await self._refresh_blocked_devices()
         self._initialized = True
-        logger.info(f"🛡️  Traffic monitor initialized ({len(self.blocked_ips)} IPs bloqueados)")
+        logger.info(f"🛡️  Traffic monitor initialized ({len(self.blocked_ips)} IPs, {len(self.blocked_devices)} devices bloqueados)")
 
     async def _refresh_blocked(self):
         """Refresh blocked IPs cache from Supabase."""
@@ -113,6 +133,29 @@ class TrafficService:
                     self.blocked_ips = {row["ip"] for row in r.json()}
         except Exception as e:
             logger.warning(f"Failed to load blocked IPs: {e}")
+
+    async def _refresh_blocked_devices(self):
+        """Refresh blocked device fingerprints cache from Supabase."""
+        try:
+            async with httpx.AsyncClient() as c:
+                r = await c.get(
+                    f"{self._url}/rest/v1/traffic_blocked_devices?select=fingerprint_hash,components,associated_ips",
+                    headers=self._headers, timeout=5.0,
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    self.blocked_devices = {row["fingerprint_hash"] for row in data}
+                    self._blocked_fp_components = {
+                        row["fingerprint_hash"]: row.get("components", {})
+                        for row in data if row.get("components")
+                    }
+                    # Também guardar mapa de IPs por fingerprint
+                    for row in data:
+                        fp = row["fingerprint_hash"]
+                        ips = row.get("associated_ips") or []
+                        self._fp_ip_map[fp] = set(ips)
+        except Exception as e:
+            logger.warning(f"Failed to load blocked devices: {e}")
 
     # ═══════════════════════════════════════════════════
     # CORE — called by middleware
@@ -156,7 +199,8 @@ class TrafficService:
             logger.debug(f"Traffic log error (non-critical): {e}")
 
     async def _log_request(self, ip: str, method: str, path: str,
-                           status_code: int, user_agent: str, response_time_ms: int):
+                           status_code: int, user_agent: str, response_time_ms: int,
+                           fingerprint_hash: str = ""):
         """Log a request and check for suspicious activity."""
         if not self._configured:
             return
@@ -187,22 +231,25 @@ class TrafficService:
 
         # ─── Insert log to Supabase ───
         try:
+            log_data = {
+                "ip": ip,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+                "user_agent": (user_agent or "")[:500],
+                "country": geo.get("country", ""),
+                "city": geo.get("city", ""),
+                "is_vpn": geo.get("is_vpn", False),
+                "vpn_provider": geo.get("provider", ""),
+                "response_time_ms": response_time_ms,
+            }
+            if fingerprint_hash:
+                log_data["fingerprint_hash"] = fingerprint_hash
             async with httpx.AsyncClient() as c:
                 await c.post(
                     f"{self._url}/rest/v1/traffic_logs",
                     headers=self._headers,
-                    json={
-                        "ip": ip,
-                        "method": method,
-                        "path": path,
-                        "status_code": status_code,
-                        "user_agent": (user_agent or "")[:500],
-                        "country": geo.get("country", ""),
-                        "city": geo.get("city", ""),
-                        "is_vpn": geo.get("is_vpn", False),
-                        "vpn_provider": geo.get("provider", ""),
-                        "response_time_ms": response_time_ms,
-                    },
+                    json=log_data,
                     timeout=5.0,
                 )
         except Exception:
@@ -437,3 +484,204 @@ class TrafficService:
 
         self.blocked_ips.discard(ip)
         logger.info(f"✅ IP desbloqueado: {ip}")
+
+    # ═══════════════════════════════════════════════════
+    # DEVICE FINGERPRINTING
+    # ═══════════════════════════════════════════════════
+
+    def is_device_blocked(self, fp_hash: str) -> bool:
+        """Check if a device fingerprint is blocked (exact match only)."""
+        if not fp_hash:
+            return False
+        return fp_hash in self.blocked_devices
+
+    def _fuzzy_match_score(self, comp_a: dict, comp_b: dict) -> int:
+        """
+        Compare two fingerprint component sets using weighted scoring.
+        Returns score 0-100. Higher = more similar.
+        """
+        score = 0
+        for key, weight in FP_WEIGHTS.items():
+            val_a = comp_a.get(key)
+            val_b = comp_b.get(key)
+            # Skip if either value is missing/empty/zero
+            if not val_a or not val_b:
+                continue
+            if str(val_a) == str(val_b):
+                score += weight
+        return score
+
+    async def register_fingerprint(self, ip: str, fp_hash: str, components: dict) -> bool:
+        """
+        Register/update a device fingerprint.
+        Returns True if the device should be blocked.
+        """
+        if not self._configured or not fp_hash:
+            return False
+
+        # 1. Exact hash check
+        if fp_hash in self.blocked_devices:
+            return True
+
+        # 2. Fuzzy matching against all blocked fingerprints
+        if components:
+            for blocked_hash, blocked_comps in self._blocked_fp_components.items():
+                score = self._fuzzy_match_score(components, blocked_comps)
+                if score >= FP_MATCH_THRESHOLD:
+                    logger.info(
+                        f"🔍 Fuzzy match: {fp_hash[:12]}... matches blocked "
+                        f"{blocked_hash[:12]}... (score: {score}/100)"
+                    )
+                    await self.block_device(
+                        fp_hash,
+                        f"Auto: fuzzy match ({score}%) com {blocked_hash[:12]}...",
+                        "system",
+                        components=components,
+                    )
+                    # Também bloquear o IP atual
+                    if ip and ip not in self.blocked_ips:
+                        await self.block_ip(ip, f"Auto: device bloqueado ({fp_hash[:12]}...)", "system")
+                    return True
+
+        # 3. Store/update fingerprint no Supabase
+        try:
+            async with httpx.AsyncClient() as c:
+                # Verificar se já existe
+                r = await c.get(
+                    f"{self._url}/rest/v1/traffic_device_fingerprints"
+                    f"?fingerprint_hash=eq.{fp_hash}&select=ips",
+                    headers=self._headers, timeout=3.0,
+                )
+                now_iso = datetime.now(timezone.utc).isoformat()
+
+                if r.status_code == 200 and r.json():
+                    # Update: adicionar IP se novo
+                    existing_ips = r.json()[0].get("ips") or []
+                    if ip and ip not in existing_ips:
+                        existing_ips.append(ip)
+                    await c.patch(
+                        f"{self._url}/rest/v1/traffic_device_fingerprints"
+                        f"?fingerprint_hash=eq.{fp_hash}",
+                        headers=self._headers,
+                        json={"ips": existing_ips, "last_seen": now_iso, "components": components},
+                        timeout=3.0,
+                    )
+                else:
+                    # Insert novo fingerprint
+                    await c.post(
+                        f"{self._url}/rest/v1/traffic_device_fingerprints",
+                        headers={**self._headers, "Prefer": "return=minimal"},
+                        json={
+                            "fingerprint_hash": fp_hash,
+                            "components": components,
+                            "ips": [ip] if ip else [],
+                        },
+                        timeout=3.0,
+                    )
+        except Exception as e:
+            logger.debug(f"Failed to register fingerprint: {e}")
+
+        # Atualizar mapa local de IPs por fingerprint
+        if ip:
+            if fp_hash not in self._fp_ip_map:
+                self._fp_ip_map[fp_hash] = set()
+            self._fp_ip_map[fp_hash].add(ip)
+
+        return False
+
+    async def block_device(self, fp_hash: str, reason: str, blocked_by: str = "admin",
+                           components: dict = None):
+        """Block a device by fingerprint hash. Also blocks all associated IPs."""
+        if not self._configured or not fp_hash:
+            return
+
+        # Obter IPs associados a este fingerprint
+        associated_ips = list(self._fp_ip_map.get(fp_hash, set()))
+
+        # Se não temos em memória, tentar obter do Supabase
+        if not associated_ips:
+            try:
+                async with httpx.AsyncClient() as c:
+                    r = await c.get(
+                        f"{self._url}/rest/v1/traffic_device_fingerprints"
+                        f"?fingerprint_hash=eq.{fp_hash}&select=ips,components",
+                        headers=self._headers, timeout=3.0,
+                    )
+                    if r.status_code == 200 and r.json():
+                        data = r.json()[0]
+                        associated_ips = data.get("ips") or []
+                        if not components:
+                            components = data.get("components") or {}
+            except Exception:
+                pass
+
+        # Inserir na tabela de dispositivos bloqueados (UPSERT)
+        try:
+            async with httpx.AsyncClient() as c:
+                await c.post(
+                    f"{self._url}/rest/v1/traffic_blocked_devices",
+                    headers={**self._headers, "Prefer": "return=minimal,resolution=merge-duplicates"},
+                    json={
+                        "fingerprint_hash": fp_hash,
+                        "reason": reason,
+                        "blocked_by": blocked_by,
+                        "components": components or {},
+                        "associated_ips": associated_ips,
+                    },
+                    timeout=5.0,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to block device {fp_hash[:12]}...: {e}")
+
+        # Também bloquear todos os IPs associados
+        for ip in associated_ips:
+            if ip and ip not in self.blocked_ips:
+                await self.block_ip(ip, f"Device bloqueado: {fp_hash[:12]}...", blocked_by)
+
+        # Atualizar cache em memória
+        self.blocked_devices.add(fp_hash)
+        if components:
+            self._blocked_fp_components[fp_hash] = components
+
+        logger.info(f"🚫 Device bloqueado: {fp_hash[:12]}... — {reason} ({blocked_by}) [{len(associated_ips)} IPs]")
+
+    async def unblock_device(self, fp_hash: str):
+        """Unblock a device and all its associated IPs."""
+        if not self._configured or not fp_hash:
+            return
+
+        # Obter IPs associados antes de remover
+        associated_ips = list(self._fp_ip_map.get(fp_hash, set()))
+        if not associated_ips:
+            try:
+                async with httpx.AsyncClient() as c:
+                    r = await c.get(
+                        f"{self._url}/rest/v1/traffic_blocked_devices"
+                        f"?fingerprint_hash=eq.{fp_hash}&select=associated_ips",
+                        headers=self._headers, timeout=3.0,
+                    )
+                    if r.status_code == 200 and r.json():
+                        associated_ips = r.json()[0].get("associated_ips") or []
+            except Exception:
+                pass
+
+        # Remover da tabela de dispositivos bloqueados
+        try:
+            async with httpx.AsyncClient() as c:
+                await c.delete(
+                    f"{self._url}/rest/v1/traffic_blocked_devices?fingerprint_hash=eq.{fp_hash}",
+                    headers=self._headers, timeout=5.0,
+                )
+        except Exception as e:
+            logger.warning(f"Failed to unblock device {fp_hash[:12]}...: {e}")
+
+        # Desbloquear todos os IPs associados
+        for ip in associated_ips:
+            await self.unblock_ip(ip)
+
+        # Atualizar cache
+        self.blocked_devices.discard(fp_hash)
+        self._blocked_fp_components.pop(fp_hash, None)
+        self._fp_ip_map.pop(fp_hash, None)
+
+        logger.info(f"✅ Device desbloqueado: {fp_hash[:12]}... [{len(associated_ips)} IPs]")

@@ -257,8 +257,6 @@ export default function AdminMFAPage() {
     setError(null);
 
     try {
-      console.log('🔐 MFA: A enviar verificação para:', pendingLogin.email, 'código:', codeToVerify);
-      
       // Verificar código MFA com o backend
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/admin/verify-mfa`, {
         method: 'POST',
@@ -273,7 +271,6 @@ export default function AdminMFAPage() {
       });
 
       const data = await response.json();
-      console.log('🔐 MFA: Resposta do backend:', response.status, data);
 
       if (!response.ok) {
         // Código inválido - incrementar strikes
@@ -293,14 +290,12 @@ export default function AdminMFAPage() {
       // Código válido - se temos password pendente, fazer login real
       // Se não (já autenticado), apenas continuar
       if (pendingLogin.password) {
-        console.log('🔐 Tentando login com:', pendingLogin.email);
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email: pendingLogin.email,
           password: pendingLogin.password,
         });
 
         if (signInError) {
-          console.error('🔐 SignIn error:', signInError);
           throw signInError;
         }
 
@@ -308,9 +303,11 @@ export default function AdminMFAPage() {
         await new Promise(resolve => setTimeout(resolve, 300));
         
         // Verificar se sessão está no localStorage - se não, forçar setSession
-        const storedToken = localStorage.getItem('sb-zawqvduiuljlvquxzlpq-auth-token');
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+        const projectRef = (() => { try { return new URL(supabaseUrl).hostname.split('.')[0]; } catch { return ''; } })();
+        const storageKey = projectRef ? `sb-${projectRef}-auth-token` : 'sb-auth-token';
+        const storedToken = localStorage.getItem(storageKey);
         if (!storedToken && signInData.session) {
-          console.log('🔐 Token não encontrado, a forçar setSession...');
           await supabase.auth.setSession({
             access_token: signInData.session.access_token,
             refresh_token: signInData.session.refresh_token,

@@ -62,7 +62,8 @@ interface BlockedIP {
 }
 
 interface Connection {
-  ip: string;
+  fingerprint_hash: string;
+  ips: string[];
   country: string;
   city: string;
   is_vpn: boolean;
@@ -70,6 +71,16 @@ interface Connection {
   method: string;
   requests: number;
   online: boolean;
+}
+
+interface BlockedDevice {
+  id: number;
+  fingerprint_hash: string;
+  reason: string;
+  blocked_by: string;
+  components: Record<string, unknown>;
+  associated_ips: string[];
+  created_at: string;
 }
 
 interface Stats {
@@ -111,6 +122,7 @@ export default function TrafficMonitorPage() {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [detailedLogs, setDetailedLogs] = useState<DetailedLogEntry[]>([]);
   const [blocked, setBlocked] = useState<BlockedIP[]>([]);
+  const [blockedDevices, setBlockedDevices] = useState<BlockedDevice[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +135,7 @@ export default function TrafficMonitorPage() {
   // Block modal
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockTargetIp, setBlockTargetIp] = useState('');
+  const [blockTargetFp, setBlockTargetFp] = useState('');
   const [blockReason, setBlockReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -176,9 +189,10 @@ export default function TrafficMonitorPage() {
       if (r.ok) {
         const data = await r.json();
         setBlocked(data.blocked || []);
+        setBlockedDevices(data.blocked_devices || []);
       }
     } catch {
-      setError('Erro ao carregar IPs bloqueados');
+      setError('Erro ao carregar bloqueados');
     } finally {
       setIsLoading(false);
     }
@@ -216,22 +230,42 @@ export default function TrafficMonitorPage() {
   // ─── ACTIONS ─────────────────────────────────────────
 
   const handleBlock = async () => {
-    if (!blockTargetIp || !blockReason.trim()) return;
+    if ((!blockTargetIp && !blockTargetFp) || !blockReason.trim()) return;
     setActionLoading(true);
     try {
       const authHeaders = await getAuthHeaders();
-      const r = await fetch(`${API}/api/admin/traffic/block-ip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ ip: blockTargetIp, reason: blockReason }),
-      });
-      if (r.ok) {
-        setShowBlockModal(false);
-        setBlockTargetIp('');
-        setBlockReason('');
-        fetchStats();
-        fetchBlocked();
-        if (activeTab === 'logs') fetchConnections();
+      // Se temos fingerprint → bloquear dispositivo (também bloqueia todos os IPs)
+      if (blockTargetFp) {
+        const r = await fetch(`${API}/api/admin/traffic/block-device`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ fingerprint_hash: blockTargetFp, reason: blockReason }),
+        });
+        if (r.ok) {
+          setShowBlockModal(false);
+          setBlockTargetIp('');
+          setBlockTargetFp('');
+          setBlockReason('');
+          fetchStats();
+          fetchBlocked();
+          if (activeTab === 'logs') fetchConnections();
+        }
+      } else {
+        // Sem fingerprint → bloquear só o IP
+        const r = await fetch(`${API}/api/admin/traffic/block-ip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ ip: blockTargetIp, reason: blockReason }),
+        });
+        if (r.ok) {
+          setShowBlockModal(false);
+          setBlockTargetIp('');
+          setBlockTargetFp('');
+          setBlockReason('');
+          fetchStats();
+          fetchBlocked();
+          if (activeTab === 'logs') fetchConnections();
+        }
       }
     } catch {} finally {
       setActionLoading(false);
@@ -252,8 +286,24 @@ export default function TrafficMonitorPage() {
     } catch {}
   };
 
-  const openBlockModal = (ip: string) => {
+  const handleUnblockDevice = async (fpHash: string) => {
+    if (!confirm(`Desbloquear este dispositivo e todos os IPs associados?`)) return;
+    try {
+      const authHeaders = await getAuthHeaders();
+      await fetch(`${API}/api/admin/traffic/unblock-device`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ fingerprint_hash: fpHash }),
+      });
+      fetchStats();
+      fetchBlocked();
+      if (activeTab === 'logs') fetchConnections();
+    } catch {}
+  };
+
+  const openBlockModal = (ip: string, fpHash: string = '') => {
     setBlockTargetIp(ip);
+    setBlockTargetFp(fpHash);
     setBlockReason('');
     setShowBlockModal(true);
   };
@@ -373,8 +423,9 @@ export default function TrafficMonitorPage() {
     return true;
   });
 
-  // Set of blocked IPs for quick lookup in logs tab
-  const blockedSet = new Set(blocked.map(b => b.ip));
+  // Set of blocked IPs and fingerprints for quick lookup in logs tab
+  const blockedIpSet = new Set(blocked.map(b => b.ip));
+  const blockedFpSet = new Set(blockedDevices.map(d => d.fingerprint_hash));
 
   // ─── RENDER ──────────────────────────────────────────
 
@@ -463,7 +514,7 @@ export default function TrafficMonitorPage() {
           onClick={() => setActiveTab('blocked')}
         >
           <i className="fa-solid fa-ban"></i>
-          <span>IPs Bloqueados</span>
+          <span>Bloqueados</span>
         </button>
       </div>
 
@@ -511,7 +562,8 @@ export default function TrafficMonitorPage() {
               <thead>
                 <tr>
                   <th>Estado</th>
-                  <th>IP</th>
+                  <th>Dispositivo</th>
+                  <th>IPs</th>
                   <th>Localização</th>
                   <th>Tipo</th>
                   <th>VPN</th>
@@ -520,61 +572,81 @@ export default function TrafficMonitorPage() {
                 </tr>
               </thead>
               <tbody>
-                {connections.map((conn) => (
-                  <tr
-                    key={conn.ip}
-                    className={
-                      blockedSet.has(conn.ip) ? 'row-blocked' :
-                      conn.is_vpn ? 'row-vpn' :
-                      conn.online ? 'row-online' : ''
-                    }
-                  >
-                    <td>
-                      <span className={`online-badge ${conn.online ? 'is-online' : 'is-offline'}`}>
-                        <span className="online-dot"></span>
-                        {conn.online ? 'Online' : 'Offline'}
-                      </span>
-                    </td>
-                    <td className="col-ip"><code>{conn.ip}</code></td>
-                    <td className="col-location">
-                      {conn.country || '—'}
-                      {conn.city ? `, ${conn.city}` : ''}
-                    </td>
-                    <td>
-                      <span className={`method-badge ${getMethodClass(conn.method)}`}>
-                        {conn.method}
-                      </span>
-                    </td>
-                    <td>
-                      {conn.is_vpn ? (
-                        <span className="vpn-badge" title={conn.vpn_provider || 'VPN/Proxy detetado'}>
-                          Sim
+                {connections.map((conn, idx) => {
+                  const isBlockedConn = blockedFpSet.has(conn.fingerprint_hash) || conn.ips.some(ip => blockedIpSet.has(ip));
+                  return (
+                    <tr
+                      key={conn.fingerprint_hash || conn.ips[0] || idx}
+                      className={
+                        isBlockedConn ? 'row-blocked' :
+                        conn.is_vpn ? 'row-vpn' :
+                        conn.online ? 'row-online' : ''
+                      }
+                    >
+                      <td>
+                        <span className={`online-badge ${conn.online ? 'is-online' : 'is-offline'}`}>
+                          <span className="online-dot"></span>
+                          {conn.online ? 'Online' : 'Offline'}
                         </span>
-                      ) : (
-                        <span className="no-vpn">Não</span>
-                      )}
-                    </td>
-                    <td className="col-requests">
-                      <span className="requests-count">{conn.requests}</span>
-                    </td>
-                    <td className="col-actions">
-                      {!blockedSet.has(conn.ip) && conn.ip !== '127.0.0.1' && (
-                        <button
-                          className="action-btn block-btn"
-                          onClick={() => openBlockModal(conn.ip)}
-                          title="Bloquear IP"
-                        >
-                          <i className="fa-solid fa-ban"></i>
-                        </button>
-                      )}
-                      {blockedSet.has(conn.ip) && (
-                        <span className="already-blocked" title="IP já bloqueado">
-                          <i className="fa-solid fa-lock"></i>
+                      </td>
+                      <td className="col-device">
+                        {conn.fingerprint_hash ? (
+                          <span className="device-badge" title={conn.fingerprint_hash}>
+                            <i className="fa-solid fa-fingerprint"></i>
+                            {conn.fingerprint_hash.slice(0, 10)}…
+                          </span>
+                        ) : (
+                          <span className="no-fp">—</span>
+                        )}
+                      </td>
+                      <td className="col-ips">
+                        {conn.ips.map((ip, i) => (
+                          <span key={ip} className="ip-tag">
+                            <code>{ip}</code>
+                            {i < conn.ips.length - 1 && ' '}
+                          </span>
+                        ))}
+                      </td>
+                      <td className="col-location">
+                        {conn.country || '—'}
+                        {conn.city ? `, ${conn.city}` : ''}
+                      </td>
+                      <td>
+                        <span className={`method-badge ${getMethodClass(conn.method)}`}>
+                          {conn.method}
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td>
+                        {conn.is_vpn ? (
+                          <span className="vpn-badge" title={conn.vpn_provider || 'VPN/Proxy detetado'}>
+                            Sim
+                          </span>
+                        ) : (
+                          <span className="no-vpn">Não</span>
+                        )}
+                      </td>
+                      <td className="col-requests">
+                        <span className="requests-count">{conn.requests}</span>
+                      </td>
+                      <td className="col-actions">
+                        {!isBlockedConn && conn.ips[0] !== '127.0.0.1' && (
+                          <button
+                            className="action-btn block-btn"
+                            onClick={() => openBlockModal(conn.ips[0], conn.fingerprint_hash)}
+                            title={conn.fingerprint_hash ? 'Bloquear dispositivo' : 'Bloquear IP'}
+                          >
+                            <i className={`fa-solid ${conn.fingerprint_hash ? 'fa-fingerprint' : 'fa-ban'}`}></i>
+                          </button>
+                        )}
+                        {isBlockedConn && (
+                          <span className="already-blocked" title="Bloqueado">
+                            <i className="fa-solid fa-lock"></i>
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -722,66 +794,133 @@ export default function TrafficMonitorPage() {
       )}
 
       {/* ═══════════════════════════════════════════════ */}
-      {/* TAB 3: IPs BLOQUEADOS                          */}
+      {/* TAB 3: BLOQUEADOS (Dispositivos + IPs)         */}
       {/* ═══════════════════════════════════════════════ */}
       {!isLoading && activeTab === 'blocked' && (
         <div className="traffic-table-wrapper">
-          {blocked.length === 0 ? (
+          {/* ─── Dispositivos Bloqueados ─── */}
+          {blockedDevices.length > 0 && (
+            <>
+              <div className="blocked-section-header">
+                <i className="fa-solid fa-fingerprint"></i>
+                <span>Dispositivos Bloqueados ({blockedDevices.length})</span>
+              </div>
+              <table className="traffic-table">
+                <thead>
+                  <tr>
+                    <th>Dispositivo</th>
+                    <th>IPs Associados</th>
+                    <th>Motivo</th>
+                    <th>Bloqueado por</th>
+                    <th>Data</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blockedDevices.map((d) => (
+                    <tr key={d.id}>
+                      <td className="col-device">
+                        <span className="device-badge" title={d.fingerprint_hash}>
+                          <i className="fa-solid fa-fingerprint"></i>
+                          {d.fingerprint_hash.slice(0, 12)}…
+                        </span>
+                      </td>
+                      <td className="col-ips">
+                        {(d.associated_ips || []).map((ip) => (
+                          <span key={ip} className="ip-tag">
+                            <code>{ip}</code>
+                          </span>
+                        ))}
+                        {(!d.associated_ips || d.associated_ips.length === 0) && '—'}
+                      </td>
+                      <td className="col-reason">{d.reason}</td>
+                      <td>
+                        <span className={`blocker-badge ${d.blocked_by === 'system' ? 'auto' : 'manual'}`}>
+                          {d.blocked_by === 'system' ? '🤖 Auto' : '👤 Manual'}
+                        </span>
+                      </td>
+                      <td className="col-time">{formatTime(d.created_at)}</td>
+                      <td className="col-actions">
+                        <button
+                          className="action-btn unblock-btn"
+                          onClick={() => handleUnblockDevice(d.fingerprint_hash)}
+                          title="Desbloquear dispositivo + todos os IPs"
+                        >
+                          <i className="fa-solid fa-unlock"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {/* ─── IPs Bloqueados (sem fingerprint) ─── */}
+          {blocked.length > 0 && (
+            <>
+              <div className="blocked-section-header" style={{ marginTop: blockedDevices.length > 0 ? '1.5rem' : 0 }}>
+                <i className="fa-solid fa-ban"></i>
+                <span>IPs Bloqueados ({blocked.length})</span>
+              </div>
+              <table className="traffic-table">
+                <thead>
+                  <tr>
+                    <th>IP</th>
+                    <th>País</th>
+                    <th>Motivo</th>
+                    <th>Bloqueado por</th>
+                    <th>Requests</th>
+                    <th>Data</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {blocked.map((b) => (
+                    <tr key={b.id}>
+                      <td className="col-ip">
+                        <code>{b.ip}</code>
+                        {b.is_vpn && <span className="vpn-badge small">VPN</span>}
+                      </td>
+                      <td>{b.country || '—'}</td>
+                      <td className="col-reason">{b.reason}</td>
+                      <td>
+                        <span className={`blocker-badge ${b.blocked_by === 'system' ? 'auto' : 'manual'}`}>
+                          {b.blocked_by === 'system' ? '🤖 Auto' : '👤 Manual'}
+                        </span>
+                      </td>
+                      <td>{b.request_count}</td>
+                      <td className="col-time">{formatTime(b.created_at)}</td>
+                      <td className="col-actions">
+                        <button
+                          className="action-btn unblock-btn"
+                          onClick={() => handleUnblock(b.ip)}
+                          title="Desbloquear"
+                        >
+                          <i className="fa-solid fa-unlock"></i>
+                        </button>
+                        {b.log_snapshot && (
+                          <button
+                            className="action-btn download-btn"
+                            onClick={() => downloadSnapshot(b.log_snapshot, b.ip)}
+                            title="Download logs"
+                          >
+                            <i className="fa-solid fa-download"></i>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+
+          {blocked.length === 0 && blockedDevices.length === 0 && (
             <div className="empty-state">
               <i className="fa-solid fa-unlock"></i>
-              <p>Nenhum IP bloqueado</p>
+              <p>Nenhum IP ou dispositivo bloqueado</p>
             </div>
-          ) : (
-            <table className="traffic-table">
-              <thead>
-                <tr>
-                  <th>IP</th>
-                  <th>País</th>
-                  <th>Motivo</th>
-                  <th>Bloqueado por</th>
-                  <th>Requests</th>
-                  <th>Data</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {blocked.map((b) => (
-                  <tr key={b.id}>
-                    <td className="col-ip">
-                      <code>{b.ip}</code>
-                      {b.is_vpn && <span className="vpn-badge small">VPN</span>}
-                    </td>
-                    <td>{b.country || '—'}</td>
-                    <td className="col-reason">{b.reason}</td>
-                    <td>
-                      <span className={`blocker-badge ${b.blocked_by === 'system' ? 'auto' : 'manual'}`}>
-                        {b.blocked_by === 'system' ? '🤖 Auto' : '👤 Manual'}
-                      </span>
-                    </td>
-                    <td>{b.request_count}</td>
-                    <td className="col-time">{formatTime(b.created_at)}</td>
-                    <td className="col-actions">
-                      <button
-                        className="action-btn unblock-btn"
-                        onClick={() => handleUnblock(b.ip)}
-                        title="Desbloquear"
-                      >
-                        <i className="fa-solid fa-unlock"></i>
-                      </button>
-                      {b.log_snapshot && (
-                        <button
-                          className="action-btn download-btn"
-                          onClick={() => downloadSnapshot(b.log_snapshot, b.ip)}
-                          title="Download logs"
-                        >
-                          <i className="fa-solid fa-download"></i>
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           )}
         </div>
       )}
@@ -791,10 +930,23 @@ export default function TrafficMonitorPage() {
         <div className="modal-overlay" onClick={() => setShowBlockModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>
-              <i className="fa-solid fa-ban"></i>
-              Bloquear IP
+              <i className={`fa-solid ${blockTargetFp ? 'fa-fingerprint' : 'fa-ban'}`}></i>
+              {blockTargetFp ? 'Bloquear Dispositivo' : 'Bloquear IP'}
             </h3>
-            <p className="modal-ip">{blockTargetIp}</p>
+            {blockTargetFp ? (
+              <div className="modal-target-info">
+                <p className="modal-fp">
+                  <i className="fa-solid fa-fingerprint"></i>
+                  {blockTargetFp.slice(0, 16)}…
+                </p>
+                <p className="modal-ip-note">
+                  <i className="fa-solid fa-circle-info"></i>
+                  Todos os IPs associados também serão bloqueados
+                </p>
+              </div>
+            ) : (
+              <p className="modal-ip">{blockTargetIp}</p>
+            )}
             <div className="modal-field">
               <label>Motivo do bloqueio</label>
               <textarea
@@ -817,7 +969,7 @@ export default function TrafficMonitorPage() {
                 {actionLoading ? (
                   <i className="fa-solid fa-spinner fa-spin"></i>
                 ) : (
-                  <i className="fa-solid fa-ban"></i>
+                  <i className={`fa-solid ${blockTargetFp ? 'fa-fingerprint' : 'fa-ban'}`}></i>
                 )}
                 Bloquear
               </button>

@@ -233,8 +233,6 @@ async def verify_admin_mfa(request: VerifyMFARequest):
     admin_id = admin.get("id")
     admin_name = admin.get("display_name", email)
     
-    print(f"🔐 MFA Verify - Admin: {admin_name} ({email})")
-    
     # 2. Validar formato do código
     if len(code) != TOTP_DIGITS or not code.isdigit():
         raise HTTPException(
@@ -245,13 +243,9 @@ async def verify_admin_mfa(request: VerifyMFARequest):
     # 3. Buscar secret MFA individual do admin
     admin_secret = await get_admin_mfa_secret(admin_id)
     
-    print(f"🔑 Secret da DB: {admin_secret[:10] if admin_secret else 'None'}...")
-    
     # Se não tem secret individual, usar fallback global
     if not admin_secret:
-        print(f"⚠️  Admin {admin_name} não tem secret MFA configurado. Usando fallback global.")
         admin_secret = FALLBACK_TOTP_SECRET
-        print(f"🔑 Fallback secret: {admin_secret[:10] if admin_secret else 'None'}...")
     
     if not admin_secret:
         raise HTTPException(
@@ -260,10 +254,6 @@ async def verify_admin_mfa(request: VerifyMFARequest):
         )
     
     # 4. Verificar código TOTP
-    print(f"🔢 Código recebido: {code}")
-    expected = generate_totp(admin_secret, TOTP_DIGITS, TOTP_INTERVAL, 0)
-    print(f"🔢 Código esperado (offset 0): {expected}")
-    
     if not verify_totp(code, admin_secret, TOTP_WINDOW):
         # TODO: Registar tentativa falhada na tabela mfa_attempts
         raise HTTPException(
@@ -272,7 +262,6 @@ async def verify_admin_mfa(request: VerifyMFARequest):
         )
     
     # 5. Código válido!
-    print(f"✅ MFA verificado com sucesso para {admin_name}")
     return VerifyMFAResponse(
         success=True,
         message="Código MFA verificado com sucesso!"
@@ -596,8 +585,13 @@ async def send_broadcast_email(request: SendBroadcastEmailRequest):
     
     # Obter lista de emails
     if request.test_mode:
-        # Modo teste: apenas admin
-        recipients = ["sam.oliveira.dev@gmail.com"]
+        # Modo teste: buscar email do admin na DB
+        try:
+            supabase = get_supabase()
+            admin_result = supabase.table("profiles").select("email").eq("role", "admin").limit(1).execute()
+            recipients = [admin_result.data[0]["email"]] if admin_result.data else []
+        except Exception:
+            recipients = []
     else:
         # Modo real: todos os subscritores
         stats = await get_email_subscribers()

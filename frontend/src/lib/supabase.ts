@@ -17,6 +17,17 @@ if (!isSupabaseConfigured) {
   console.warn('⚠️ Supabase credentials not configured. Auth features will be disabled.');
 }
 
+// Derivar storage key do project ref (não hardcodar)
+function getSupabaseStorageKey(): string {
+  try {
+    const url = new URL(supabaseUrl);
+    const projectRef = url.hostname.split('.')[0];
+    return `sb-${projectRef}-auth-token`;
+  } catch {
+    return 'sb-auth-token';
+  }
+}
+
 // Criar cliente Supabase com createClient padrão (melhor persistência)
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
@@ -26,7 +37,7 @@ export const supabase = createClient(
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
-      storageKey: 'sb-zawqvduiuljlvquxzlpq-auth-token',
+      storageKey: getSupabaseStorageKey(),
       storage: typeof window !== 'undefined' ? window.localStorage : undefined,
     },
   }

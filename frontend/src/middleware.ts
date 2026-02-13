@@ -65,15 +65,18 @@ export async function middleware(req: NextRequest) {
   if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
     const pagePath = req.nextUrl.pathname;
     const userAgent = req.headers.get('user-agent') || '';
+    // Ler fingerprint do cookie (definido pelo PageTracker no client-side)
+    const fpCookie = req.cookies.get('__ewfp')?.value || '';
     // Não enviar path para: rotas admin ou /api/ (evita poluir traffic_logs)
     const isInternal = pagePath.startsWith('/admin') || pagePath.startsWith('/api/');
-    const isBlocked = await checkIpBlocked(
+    const isBlocked = await checkBlocked(
       clientIp,
       isInternal ? '' : pagePath,
-      isInternal ? '' : userAgent
+      isInternal ? '' : userAgent,
+      fpCookie
     );
     if (isBlocked) {
-      return blocked403Response();
+      return blockedResponse();
     }
   }
 
@@ -185,12 +188,13 @@ export async function middleware(req: NextRequest) {
 }
 
 // ═══════════════════════════════════════════════════════
-// IP BLOCK CHECKER — consulta o backend com cache
+// BLOCK CHECKER — consulta o backend (IP + fingerprint) com cache
 // ═══════════════════════════════════════════════════════
 
-async function checkIpBlocked(ip: string, path: string = '', ua: string = ''): Promise<boolean> {
-  // 1. Se IP está em cache como bloqueado → retornar imediatamente
-  const cached = ipCache.get(ip);
+async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: string = ''): Promise<boolean> {
+  // 1. Cache check — usar chave combinada IP:FP para evitar falsos negativos
+  const cacheKey = fp ? `${ip}:${fp}` : ip;
+  const cached = ipCache.get(cacheKey);
   if (cached && Date.now() - cached.ts < CACHE_TTL && cached.blocked) {
     return true;
   }
@@ -200,14 +204,15 @@ async function checkIpBlocked(ip: string, path: string = '', ua: string = ''): P
   const lastVisit = visitCache.get(visitKey) || 0;
   const skipVisitLog = Date.now() - lastVisit < VISIT_TTL;
 
-  // 3. Perguntar ao backend (envia path+ua para registar visita)
+  // 3. Perguntar ao backend (envia path+ua+fp para registar visita)
   try {
     const params = new URLSearchParams({ ip });
-    // Só enviar path se esta visita ainda não foi registada
     if (path && !skipVisitLog) {
       params.set('path', path);
       if (ua) params.set('ua', ua.slice(0, 300));
     }
+    // Enviar fingerprint se disponível (do cookie __ewfp)
+    if (fp) params.set('fp', fp);
 
     const r = await fetch(
       `${BACKEND_URL}/api/check-ip?${params.toString()}`,
@@ -215,63 +220,34 @@ async function checkIpBlocked(ip: string, path: string = '', ua: string = ''): P
     );
     if (r.ok) {
       const data = await r.json();
-      ipCache.set(ip, { blocked: data.blocked, ts: Date.now() });
+      ipCache.set(cacheKey, { blocked: data.blocked, ts: Date.now() });
       if (path && !skipVisitLog) {
         visitCache.set(visitKey, Date.now());
       }
-      // Limpar caches se crescerem demais
       if (ipCache.size > 5000) ipCache.clear();
       if (visitCache.size > 10000) visitCache.clear();
       return data.blocked;
     }
   } catch {
-    // Fail open — se o backend não responder, não bloquear
+    // Fail open
   }
   return false;
 }
 
 // ═══════════════════════════════════════════════════════
-// PÁGINA 403 — Acesso bloqueado (dark theme Eye Web)
+// BLOCKED PAGE — "é como se o site não existisse"
+// Parece uma página 404 genérica do Vercel/Next.js.
+// Não revela que o Eye Web existe nem que o utilizador foi bloqueado.
 // ═══════════════════════════════════════════════════════
 
-function blocked403Response(): NextResponse {
-  const html = `<!DOCTYPE html>
-<html lang="pt">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Acesso Bloqueado — Eye Web</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{min-height:100vh;background:linear-gradient(135deg,#0a0a0a 0%,#1a0a0a 50%,#0a0a0a 100%);display:flex;align-items:center;justify-content:center;font-family:system-ui,-apple-system,sans-serif;color:#fff}
-    .c{text-align:center;padding:3rem;max-width:520px}
-    .icon{font-size:5rem;margin-bottom:1.5rem;display:block}
-    h1{font-size:2.2rem;margin-bottom:.75rem;color:#ef4444;font-weight:700}
-    p{color:rgba(255,255,255,.55);font-size:1.05rem;line-height:1.7;margin-bottom:.75rem}
-    .line{width:60px;height:2px;background:#ef4444;margin:1.5rem auto;border-radius:2px;opacity:.5}
-    .code{font-family:'JetBrains Mono',monospace;color:rgba(255,255,255,.2);font-size:.8rem;margin-top:1.5rem;letter-spacing:1px}
-    .badge{display:inline-block;margin-top:1.25rem;padding:.5rem 1.25rem;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.3);font-size:.78rem;letter-spacing:.5px}
-  </style>
-</head>
-<body>
-  <div class="c">
-    <span class="icon">🚫</span>
-    <h1>Acesso Bloqueado</h1>
-    <div class="line"></div>
-    <p>O teu IP foi bloqueado pelo sistema de defesa do Eye Web devido a atividade suspeita detetada.</p>
-    <p>Se acreditas que isto é um erro, contacta o administrador.</p>
-    <div class="code">HTTP 403 — FORBIDDEN</div>
-    <div class="badge">Eye Web Defense System</div>
-  </div>
-</body>
-</html>`;
+function blockedResponse(): NextResponse {
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/><title>404: This page could not be found</title></head><body style="color:#000;background:#fff;font-family:-apple-system,BlinkMacSystemFont,Roboto,'Segoe UI','Fira Sans',Avenir,'Helvetica Neue','Lucida Grande',sans-serif;height:100vh;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center"><div><h1 style="display:inline-block;margin:0 20px 0 0;padding:0 23px 0 0;font-size:24px;font-weight:500;vertical-align:top;line-height:49px;border-right:1px solid rgba(0,0,0,.3)">404</h1><div style="display:inline-block"><h2 style="font-size:14px;font-weight:400;line-height:49px;margin:0">This page could not be found.</h2></div></div></body></html>`;
 
   return new NextResponse(html, {
-    status: 403,
+    status: 404,
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store, no-cache',
-      'X-Blocked-By': 'EyeWeb-Defense',
     },
   });
 }
