@@ -1215,3 +1215,73 @@
 .col-device {
   min-width: 120px;
 }
+
+/* ─── Admin fingerprint icon (actions column) ─── */
+.admin-fp-icon {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.85rem;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* ─── Blocker badge plain (no colors, no emojis) ─── */
+.blocker-badge-plain {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ─── Clickable reason in blocked devices ─── */
+.reason-clickable {
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.2);
+  text-underline-offset: 2px;
+  transition: color 0.2s, text-decoration-color 0.2s;
+}
+
+.reason-clickable:hover {
+  color: rgba(255, 255, 255, 0.95);
+  text-decoration-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ─── Reason detail modal ─── */
+.reason-modal {
+  max-width: 480px;
+}
+
+.reason-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.reason-field label {
+  display: block;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.3rem;
+}
+
+.reason-field p {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.9rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.reason-detail-text {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem !important;
+  color: rgba(255, 255, 255, 0.5) !important;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  word-break: break-all;
+}

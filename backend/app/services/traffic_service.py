@@ -176,19 +176,31 @@ class TrafficService:
 
     _LOCALHOST = {"127.0.0.1", "::1", "localhost", "unknown", ""}
 
-    def heartbeat(self, ip: str):
-        """Record a heartbeat from an IP (called every ~20s by frontend)."""
+    def heartbeat(self, ip: str, fp: str = ""):
+        """Record a heartbeat. Tracks by fingerprint when available, falls back to IP."""
         if ip in self._LOCALHOST:
             return  # Ignorar localhost — não conta como utilizador real
-        self._heartbeats[ip] = time.time()
+        now = time.time()
+        # Always track IP heartbeat (fallback for connections without FP)
+        self._heartbeats[ip] = now
+        # Track fingerprint heartbeat when available (per-device accuracy)
+        if fp:
+            self._heartbeats[f"fp:{fp}"] = now
         # Cleanup stale heartbeats (> 5 min)
-        if len(self._heartbeats) > 5000:
-            cutoff = time.time() - 300
+        if len(self._heartbeats) > 10000:
+            cutoff = now - 300
             self._heartbeats = {k: v for k, v in self._heartbeats.items() if v > cutoff}
 
     def is_online(self, ip: str) -> bool:
         """Check if IP sent a heartbeat in the last 60 seconds."""
         last = self._heartbeats.get(ip, 0)
+        return (time.time() - last) < 60
+
+    def is_online_fp(self, fp: str) -> bool:
+        """Check if fingerprint sent a heartbeat in the last 60 seconds."""
+        if not fp:
+            return False
+        last = self._heartbeats.get(f"fp:{fp}", 0)
         return (time.time() - last) < 60
 
     def register_admin_ip(self, ip: str):

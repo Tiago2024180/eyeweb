@@ -273,7 +273,9 @@ async def get_connections():
         # Determine online: heartbeat (in-memory) OR recent Supabase activity (< 2 min)
         # Also check if any IP belongs to an admin
         for conn in seen.values():
-            has_heartbeat = any(ts.is_online(ip) for ip in conn["_ips_set"])
+            fp = conn.get("fingerprint_hash", "")
+            # Prefer per-fingerprint heartbeat; fallback to IP heartbeat
+            has_heartbeat = ts.is_online_fp(fp) if fp else any(ts.is_online(ip) for ip in conn["_ips_set"])
             # Admin badge: baseado no fingerprint (não no IP, senão todos
             # os dispositivos na mesma rede apareceriam como admin)
             is_admin = ts.is_admin_fp(conn.get("fingerprint_hash", ""))
@@ -619,7 +621,7 @@ async def check_ip_blocked(
 
     # Sempre registar heartbeat (mantém estado "online" no dashboard)
     if not blocked:
-        ts.heartbeat(ip)
+        ts.heartbeat(ip, fp)
 
     # Se path foi enviado → registar visita no Supabase (fire-and-forget)
     if path and not blocked:
@@ -728,7 +730,7 @@ async def admin_heartbeat(req: AdminHeartbeatRequest, request: Request):
         return {"ok": False}
 
     ts = TrafficService.get()
-    ts.heartbeat(ip)
+    ts.heartbeat(ip, req.fp)
     ts.register_admin_ip(ip)
     # Registar fingerprint como admin (para badge preciso por dispositivo)
     if req.fp:
