@@ -701,9 +701,9 @@ class TrafficService:
         except Exception as e:
             logger.warning(f"Failed to block device {fp_hash[:12]}...: {e}")
 
-        # Também bloquear todos os IPs associados
+        # Também bloquear IPs associados (exceto IPs usados pelo admin)
         for ip in associated_ips:
-            if ip and ip not in self.blocked_ips:
+            if ip and ip not in self.blocked_ips and not self.is_admin_ip(ip):
                 await self.block_ip(ip, f"Device bloqueado: {fp_hash[:12]}...", blocked_by)
 
         # Atualizar cache em memória
