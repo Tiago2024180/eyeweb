@@ -515,6 +515,9 @@ async def get_detailed_logs(
             r = await c.get(q_threats, headers=headers, timeout=10.0)
         if r.status_code == 200:
             for evt in r.json():
+                # Skip infra IPs (old entries before filtering was added)
+                if _is_infra_ip(evt.get("ip", "")):
+                    continue
                 entries.append({
                     "_type": "threat",
                     "id": f"thr_{evt['id']}",
