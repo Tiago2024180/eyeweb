@@ -1382,19 +1382,20 @@
   font-weight: 400;
 }
 
-.ip-modal-table-header {
+.ip-modal-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 0.75rem 0.3rem;
 }
 
-.ip-modal-table-header span {
+.ip-modal-section-header label {
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: rgba(255, 255, 255, 0.4);
+  margin-bottom: 0;
 }
 
 .ip-modal-current {

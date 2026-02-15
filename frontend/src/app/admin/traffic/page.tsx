@@ -1053,12 +1053,11 @@ export default function TrafficMonitorPage() {
             <div className="ip-modal-body">
               {ipModalData.ip_details.length > 0 && (
                 <>
-                  <div className="ip-modal-table-header">
-                    <span></span>
-                    <span>VPN</span>
-                  </div>
                   <div className="ip-modal-current">
-                    <label>IP Atual</label>
+                    <div className="ip-modal-section-header">
+                      <label>IP Atual</label>
+                      <label>VPN</label>
+                    </div>
                     <div className="ip-modal-row">
                       <code>{ipModalData.ip_details[0].ip}</code>
                       <span className={`vpn-indicator ${ipModalData.ip_details[0].is_vpn ? 'is-vpn' : 'no-vpn'}`}>
