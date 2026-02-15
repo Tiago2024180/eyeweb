@@ -223,13 +223,13 @@ async def get_connections():
         for row in rows:
             ip = row.get("ip", "")
             method = row.get("method", "")
+            fp = row.get("fingerprint_hash", "") or ""
             if not ip or ip in _LOCALHOST_IPS or _is_infra_ip(ip):
                 continue
-            # Skip CORS preflight and API calls without fingerprint — noise
+            # Skip API calls without fingerprint — noise (OPTIONS/POST/GET)
             if method in ("OPTIONS", "POST", "GET") and not fp:
                 continue
 
-            fp = row.get("fingerprint_hash", "") or ""
             group_key = fp if fp else f"ip:{ip}"
 
             if group_key not in seen:
