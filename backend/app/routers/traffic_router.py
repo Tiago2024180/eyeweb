@@ -119,42 +119,60 @@ class RegisterFPRequest(BaseModel):
 _LOCALHOST_IPS = {"127.0.0.1", "::1", "localhost", "unknown", ""}
 
 # ─── Infrastructure IPs to hide (Vercel, Render, n8n, HuggingFace, AWS) ───
-# These are cloud-provider CIDR ranges that generate noise in the dashboard.
+# Cloud-provider CIDR ranges that generate noise in the dashboard.
+# Uses broad ranges to avoid constantly adding individual /16 blocks.
 _INFRA_CIDRS = [
-    # AWS eu-west-3 (Paris) — n8n workflows / HuggingFace dataset
-    ip_network("13.36.0.0/14"),     # 13.36.x – 13.39.x
-    ip_network("15.188.0.0/16"),    # 15.188.x.x
-    ip_network("15.236.0.0/16"),    # 15.236.x.x
-    ip_network("35.180.0.0/16"),    # 35.180.x.x
-    ip_network("51.44.0.0/16"),     # 51.44.x.x  (n8n Paris)
-    ip_network("52.47.0.0/16"),     # 52.47.x.x
-    # AWS us-west-1 (N. California) — Render backend
-    ip_network("13.56.0.0/15"),     # 13.56.x – 13.57.x
-    ip_network("54.176.0.0/15"),    # 54.176 – 54.177
-    # DigitalOcean — Vercel edge / ISR / cron
+    # ── AWS (all regions used by Render, n8n, HuggingFace) ──
+    ip_network("3.0.0.0/8"),        # 3.x.x.x   (us-west, eu-west, etc.)
+    ip_network("13.32.0.0/11"),     # 13.32–63   (CloudFront, EC2 us/eu)
+    ip_network("15.0.0.0/8"),       # 15.x.x.x   (eu-west-3, etc.)
+    ip_network("18.0.0.0/8"),       # 18.x.x.x   (us-east, eu, etc.)
+    ip_network("35.160.0.0/11"),    # 35.160–191 (us-west-2, eu)
+    ip_network("44.192.0.0/10"),    # 44.192–255 (EC2 global)
+    ip_network("51.44.0.0/16"),     # 51.44.x.x  (eu-west-3 Paris)
+    ip_network("52.0.0.0/8"),       # 52.x.x.x   (EC2 global)
+    ip_network("54.0.0.0/8"),       # 54.x.x.x   (EC2 global)
+    ip_network("99.77.0.0/16"),     # 99.77.x.x  (CloudFront)
+    # ── DigitalOcean (Vercel infrastructure) ──
     ip_network("64.23.0.0/16"),     # 64.23.x.x
+    ip_network("68.183.0.0/16"),    # 68.183.x.x
     ip_network("134.199.0.0/16"),   # 134.199.x.x
     ip_network("137.184.0.0/16"),   # 137.184.x.x
+    ip_network("138.68.0.0/16"),    # 138.68.x.x
+    ip_network("139.59.0.0/16"),    # 139.59.x.x
+    ip_network("143.198.0.0/16"),   # 143.198.x.x
+    ip_network("143.244.0.0/16"),   # 143.244.x.x
     ip_network("146.190.0.0/16"),   # 146.190.x.x
     ip_network("147.182.0.0/16"),   # 147.182.x.x
+    ip_network("157.245.0.0/16"),   # 157.245.x.x
     ip_network("159.65.0.0/16"),    # 159.65.x.x
     ip_network("159.89.0.0/16"),    # 159.89.x.x
-    ip_network("164.90.0.0/15"),    # 164.90.x – 164.91.x
+    ip_network("159.203.0.0/16"),   # 159.203.x.x
+    ip_network("161.35.0.0/16"),    # 161.35.x.x
+    ip_network("164.90.0.0/15"),    # 164.90–91
     ip_network("164.92.0.0/16"),    # 164.92.x.x
+    ip_network("165.22.0.0/16"),    # 165.22.x.x
+    ip_network("165.227.0.0/16"),   # 165.227.x.x
     ip_network("165.232.0.0/16"),   # 165.232.x.x
     ip_network("167.71.0.0/16"),    # 167.71.x.x
     ip_network("167.172.0.0/16"),   # 167.172.x.x
+    ip_network("170.64.0.0/16"),    # 170.64.x.x
+    ip_network("174.138.0.0/16"),   # 174.138.x.x
     ip_network("178.128.0.0/16"),   # 178.128.x.x
+    ip_network("178.62.0.0/16"),    # 178.62.x.x
     ip_network("188.166.0.0/16"),   # 188.166.x.x
-    # Google Cloud — Render health checks
-    ip_network("34.82.0.0/15"),     # 34.82 – 34.83
-    ip_network("35.197.0.0/16"),    # 35.197.x.x
-    ip_network("35.199.0.0/16"),    # 35.199.x.x
-    ip_network("35.233.0.0/16"),    # 35.233.x.x
-    ip_network("35.247.0.0/16"),    # 35.247.x.x
-    # Microsoft Azure — bots / monitoring
-    ip_network("104.210.0.0/16"),   # 104.210.x.x
-    ip_network("104.40.0.0/16"),    # 104.40.x.x
+    ip_network("206.189.0.0/16"),   # 206.189.x.x
+    ip_network("209.97.0.0/16"),    # 209.97.x.x
+    # ── Google Cloud (Render) ──
+    ip_network("34.0.0.0/8"),       # 34.x.x.x   (GCP global)
+    ip_network("35.184.0.0/13"),    # 35.184–191
+    ip_network("35.192.0.0/12"),    # 35.192–207
+    ip_network("35.208.0.0/12"),    # 35.208–223
+    ip_network("35.224.0.0/12"),    # 35.224–239
+    ip_network("35.240.0.0/12"),    # 35.240–255
+    # ── Microsoft Azure ──
+    ip_network("104.40.0.0/13"),    # 104.40–47
+    ip_network("104.208.0.0/13"),   # 104.208–215
 ]
 
 def _is_infra_ip(ip_str: str) -> bool:
@@ -207,8 +225,8 @@ async def get_connections():
             method = row.get("method", "")
             if not ip or ip in _LOCALHOST_IPS or _is_infra_ip(ip):
                 continue
-            # Skip CORS preflight — browser noise, no fingerprint
-            if method == "OPTIONS":
+            # Skip CORS preflight and API calls without fingerprint — noise
+            if method in ("OPTIONS", "POST", "GET") and not fp:
                 continue
 
             fp = row.get("fingerprint_hash", "") or ""
