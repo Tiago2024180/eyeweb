@@ -135,6 +135,8 @@ _INFRA_CIDRS = [
     ip_network("99.77.0.0/16"),     # 99.77.x.x  (CloudFront)
     ip_network("184.72.0.0/15"),    # 184.72–73   (EC2 us-west-1)
     # ── DigitalOcean (Vercel infrastructure) ──
+    ip_network("24.144.0.0/16"),    # 24.144.x.x
+    ip_network("24.199.0.0/16"),    # 24.199.x.x
     ip_network("64.23.0.0/16"),     # 64.23.x.x
     ip_network("68.183.0.0/16"),    # 68.183.x.x
     ip_network("134.199.0.0/16"),   # 134.199.x.x
