@@ -15,6 +15,7 @@ import json
 import logging
 from collections import defaultdict
 from datetime import datetime, timezone
+from ipaddress import ip_address, ip_network
 from typing import Dict, Optional
 
 import httpx
@@ -24,6 +25,32 @@ logger = logging.getLogger(__name__)
 # ─── PATHS TO SKIP (avoid feedback loops) ────────────
 SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health"}
 SKIP_PREFIXES = ("/api/admin/traffic", "/api/admin-heartbeat", "/api/visit", "/api/heartbeat", "/api/check-ip", "/api/register-fingerprint")
+
+# ─── INFRA CIDRs (skip threat detection for infra IPs) ───
+_INFRA_NETS = [
+    ip_network("3.0.0.0/8"),
+    ip_network("13.32.0.0/11"),
+    ip_network("15.0.0.0/8"),
+    ip_network("18.0.0.0/8"),
+    ip_network("34.0.0.0/8"),
+    ip_network("35.0.0.0/8"),
+    ip_network("44.192.0.0/10"),
+    ip_network("51.44.0.0/16"),
+    ip_network("52.0.0.0/8"),
+    ip_network("54.0.0.0/8"),
+    ip_network("66.102.0.0/16"),
+    ip_network("66.249.0.0/16"),
+    ip_network("142.250.0.0/15"),
+    ip_network("104.40.0.0/13"),
+    ip_network("104.208.0.0/13"),
+]
+
+def _is_infra(ip_str: str) -> bool:
+    try:
+        addr = ip_address(ip_str)
+        return any(addr in net for net in _INFRA_NETS)
+    except (ValueError, TypeError):
+        return False
 
 # ─── THREAT SIGNATURES ───────────────────────────────
 SCANNER_AGENTS = [
@@ -348,8 +375,8 @@ class TrafficService:
                                   user_agent: str, now: float,
                                   geo: dict | None = None):
         """Detect attack patterns and auto-block if necessary."""
-        # Administradores nunca são tratados como suspeitos
-        if self.is_admin_ip(ip):
+        # Administradores e IPs de infraestrutura nunca são tratados como suspeitos
+        if self.is_admin_ip(ip) or _is_infra(ip):
             return
 
         geo = geo or {}
@@ -532,7 +559,7 @@ class TrafficService:
                 if r.status_code == 200:
                     d = r.json()
                     if d.get("status") == "success":
-                        is_vpn = d.get("proxy", False) or d.get("hosting", False)
+                        is_vpn = d.get("proxy", False)
                         result = {
                             "country": d.get("country", "Desconhecido"),
                             "city": d.get("city", ""),
