@@ -243,8 +243,9 @@ async def get_connections():
             fp = row.get("fingerprint_hash", "") or ""
             if not ip or ip in _LOCALHOST_IPS or _is_infra_ip(ip):
                 continue
-            # Skip API calls without fingerprint — noise (OPTIONS/POST/GET)
-            if method in ("OPTIONS", "POST", "GET") and not fp:
+            # Skip any request without fingerprint — bots, crawlers and
+            # infra never execute JS so they never send a fingerprint.
+            if not fp:
                 continue
 
             group_key = fp if fp else f"ip:{ip}"
