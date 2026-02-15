@@ -286,6 +286,10 @@ class TrafficService:
     async def _detect_suspicious(self, ip: str, method: str, path: str,
                                   user_agent: str, now: float):
         """Detect attack patterns and auto-block if necessary."""
+        # Administradores nunca são tratados como suspeitos
+        if self.is_admin_ip(ip):
+            return
+
         events = []
 
         # 1. Rate limiting (>100 req/min)
@@ -360,8 +364,8 @@ class TrafficService:
             except Exception:
                 pass
 
-            # Auto-block if threshold exceeded
-            if auto_block and ip not in self.blocked_ips:
+            # Auto-block if threshold exceeded (nunca bloquear admins)
+            if auto_block and ip not in self.blocked_ips and not self.is_admin_ip(ip):
                 await self.block_ip(ip, f"Auto: {event['event']}", "system")
 
     # ═══════════════════════════════════════════════════
@@ -664,6 +668,11 @@ class TrafficService:
                             components = data.get("components") or {}
             except Exception:
                 pass
+
+        # Impedir bloqueio de dispositivos cujos IPs pertencem a um admin
+        if any(self.is_admin_ip(ip) for ip in associated_ips):
+            logger.warning(f"🛡️ Tentativa de bloquear dispositivo admin ignorada: {fp_hash[:12]}...")
+            raise ValueError(f"Dispositivo {fp_hash[:12]}... pertence a um administrador e não pode ser bloqueado")
 
         # Inserir na tabela de dispositivos bloqueados (UPSERT)
         try:

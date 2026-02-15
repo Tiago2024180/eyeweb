@@ -562,7 +562,12 @@ async def block_device(req: BlockDeviceRequest):
     """Block a device by fingerprint hash. Also blocks all associated IPs."""
     from ..services.traffic_service import TrafficService
     ts = TrafficService.get()
-    await ts.block_device(req.fingerprint_hash, req.reason, "admin")
+
+    try:
+        await ts.block_device(req.fingerprint_hash, req.reason, "admin")
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     return {"success": True, "message": f"Device {req.fingerprint_hash[:12]}... bloqueado"}
 
 
