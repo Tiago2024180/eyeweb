@@ -19,6 +19,9 @@ export async function POST(req: NextRequest) {
     req.headers.get('x-real-ip') ||
     '127.0.0.1';
 
+  // Ler fingerprint do cookie (já definido pelo PageTracker nas páginas públicas)
+  const fp = req.cookies.get('__ewfp')?.value || '';
+
   // Obter Authorization header (token Supabase)
   const authHeader = req.headers.get('authorization') || '';
 
@@ -33,7 +36,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
         'Authorization': authHeader,
       },
-      body: JSON.stringify({ ip }),
+      body: JSON.stringify({ ip, fp }),
       signal: AbortSignal.timeout(3000),
     });
 

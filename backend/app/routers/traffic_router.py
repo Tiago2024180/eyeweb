@@ -274,7 +274,9 @@ async def get_connections():
         # Also check if any IP belongs to an admin
         for conn in seen.values():
             has_heartbeat = any(ts.is_online(ip) for ip in conn["_ips_set"])
-            is_admin = any(ts.is_admin_ip(ip) for ip in conn["_ips_set"])
+            # Admin badge: baseado no fingerprint (não no IP, senão todos
+            # os dispositivos na mesma rede apareceriam como admin)
+            is_admin = ts.is_admin_fp(conn.get("fingerprint_hash", ""))
             recent = False
             last_seen = conn.pop("_last_seen", "")
             if last_seen:
@@ -706,6 +708,7 @@ async def heartbeat(request: Request):
 
 class AdminHeartbeatRequest(BaseModel):
     ip: str
+    fp: str = ""
 
 
 @visit_router.post("/admin-heartbeat")
@@ -731,6 +734,9 @@ async def admin_heartbeat(req: AdminHeartbeatRequest, request: Request):
     ts = TrafficService.get()
     ts.heartbeat(ip)
     ts.register_admin_ip(ip)
+    # Registar fingerprint como admin (para badge preciso por dispositivo)
+    if req.fp:
+        ts.register_admin_fp(req.fp)
     return {"ok": True}
 
 

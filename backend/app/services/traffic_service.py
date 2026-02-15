@@ -100,6 +100,7 @@ class TrafficService:
         self._geo_cache: Dict[str, dict] = {}
         self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
         self._admin_ips: Dict[str, float] = {}    # ip → last admin heartbeat timestamp
+        self._admin_fps: Dict[str, float] = {}    # fingerprint_hash → last admin heartbeat timestamp
         self.blocked_devices: set = set()  # fingerprint hashes bloqueados
         self.blocked_hardware_hashes: set = set()  # hardware hashes bloqueados (anti browser-switch)
         self._blocked_fp_components: Dict[str, dict] = {}  # fp_hash → components (para fuzzy matching)
@@ -195,11 +196,24 @@ class TrafficService:
         if ip in self._LOCALHOST:
             return
         self._admin_ips[ip] = time.time()
-        logger.info(f"🛡️ Admin IP registado: {ip}")
+
+    def register_admin_fp(self, fp: str):
+        """Tag a fingerprint as belonging to a verified admin."""
+        if not fp:
+            return
+        self._admin_fps[fp] = time.time()
+        logger.info(f"\U0001f6e1\ufe0f Admin FP registado: {fp[:12]}...")
 
     def is_admin_ip(self, ip: str) -> bool:
         """Check if IP is a known admin (heartbeat within last 5 minutes)."""
         last = self._admin_ips.get(ip, 0)
+        return (time.time() - last) < 300  # 5 min window
+
+    def is_admin_fp(self, fp: str) -> bool:
+        """Check if fingerprint belongs to a verified admin."""
+        if not fp:
+            return False
+        last = self._admin_fps.get(fp, 0)
         return (time.time() - last) < 300  # 5 min window
 
     def online_count(self) -> int:
@@ -669,8 +683,8 @@ class TrafficService:
             except Exception:
                 pass
 
-        # Impedir bloqueio de dispositivos cujos IPs pertencem a um admin
-        if any(self.is_admin_ip(ip) for ip in associated_ips):
+        # Impedir bloqueio de dispositivos admin (por fingerprint ou IPs associados)
+        if self.is_admin_fp(fp_hash) or any(self.is_admin_ip(ip) for ip in associated_ips):
             logger.warning(f"🛡️ Tentativa de bloquear dispositivo admin ignorada: {fp_hash[:12]}...")
             raise ValueError(f"Dispositivo {fp_hash[:12]}... pertence a um administrador e não pode ser bloqueado")
 
