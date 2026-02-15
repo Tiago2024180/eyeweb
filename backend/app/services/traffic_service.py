@@ -42,6 +42,41 @@ SQL_PATTERNS = [
 
 PATH_TRAVERSAL = ["../", "..\\", "%2e%2e", "%252e"]
 
+# Expanded path traversal targets (case-insensitive match on decoded path)
+PATH_TRAVERSAL_TARGETS = [
+    "/etc/passwd", "/etc/shadow", "/etc/hosts",
+    "/proc/self", "/proc/version", "/proc/cpuinfo",
+    "/var/log/", "/var/www/", "/usr/local/",
+    "c:\\windows", "c:/windows", "boot.ini",
+    "win.ini", "web.config",
+]
+
+# ─── Suspicious paths (common scan/recon targets) ───
+SUSPICIOUS_PATHS = [
+    # CMS / framework probes
+    "/wp-admin", "/wp-login", "/wp-content", "/wp-includes",
+    "/wordpress", "/wp-json", "/xmlrpc.php",
+    "/administrator", "/joomla", "/drupal",
+    # Config / secret files
+    "/.env", "/.git", "/.svn", "/.htaccess", "/.htpasswd",
+    "/.DS_Store", "/config.php", "/config.yml", "/config.json",
+    "/database.yml", "/settings.py", "/web.config",
+    "/composer.json", "/package.json", "/.npmrc",
+    # Server info / debug
+    "/phpinfo", "/phpmyadmin", "/pma", "/adminer",
+    "/server-status", "/server-info", "/_debug",
+    "/actuator", "/swagger", "/graphql",
+    # Shell / backdoor probes
+    "/shell", "/cmd", "/command", "/eval",
+    "/c99", "/r57", "/webshell", "/backdoor",
+    "/filemanager", "/upload.php",
+    # Common vulnerability paths
+    "/cgi-bin/", "/console", "/debug/", "/trace",
+    "/solr/", "/jenkins/", "/manager/html",
+    "/invoker/", "/jmx-console", "/status",
+    "/.well-known/", "/telescope/",
+]
+
 # ─── THRESHOLDS ──────────────────────────────────────
 RATE_LIMIT_WINDOW = 60       # seconds
 RATE_LIMIT_MAX = 100         # requests per window
@@ -329,13 +364,14 @@ class TrafficService:
             })
 
         # 2. Scanner detection (known tools in User-Agent)
+        #    → Apenas alerta, NÃO bloqueia automaticamente
         ua_lower = (user_agent or "").lower()
         for scanner in SCANNER_AGENTS:
             if scanner in ua_lower:
                 events.append({
                     "ip": ip, "event": "scanner", "severity": "high",
                     "details": f"Scanner detetado: {scanner}",
-                    "path": path, "_auto_block": True,
+                    "path": path, "_auto_block": False,
                 })
                 break
 
@@ -350,13 +386,30 @@ class TrafficService:
                 })
                 break
 
-        # 4. Path traversal attempts
+        # 4. Path traversal attempts (../ patterns)
+        #    → Apenas alerta, NÃO bloqueia automaticamente
+        path_lower = path.lower()
         for pattern in PATH_TRAVERSAL:
-            if pattern in path.lower():
+            if pattern in path_lower:
                 events.append({
-                    "ip": ip, "event": "path_traversal", "severity": "critical",
+                    "ip": ip, "event": "path_traversal", "severity": "high",
                     "details": f"Tentativa de path traversal: {pattern}",
-                    "path": path, "_auto_block": True,
+                    "path": path, "_auto_block": False,
+                })
+                break
+
+        # 4b. Path traversal targets (e.g. /etc/passwd, /etc/../passwd)
+        #     Decode common URL encodings first, then normalize
+        import urllib.parse
+        decoded_path = urllib.parse.unquote(urllib.parse.unquote(path_lower))
+        # Collapse /etc/../etc/passwd → /etc/passwd style patterns
+        # by checking if any target appears in any form
+        for target in PATH_TRAVERSAL_TARGETS:
+            if target in decoded_path:
+                events.append({
+                    "ip": ip, "event": "path_traversal", "severity": "high",
+                    "details": f"Acesso a ficheiro sensível: {target}",
+                    "path": path, "_auto_block": False,
                 })
                 break
 
@@ -373,6 +426,38 @@ class TrafficService:
                     "ip": ip, "event": "brute_force", "severity": "critical",
                     "details": f"{len(self._req_counts[login_key])} tentativas de login em 5 minutos",
                     "path": path, "_auto_block": True,
+                })
+
+        # 6. Suspicious path probing (unknown scanners — behavioral detection)
+        #    Detects bots probing for common CMS, config files, shells, etc.
+        #    → Apenas alerta; com scan repetitivo → auto-block
+        for susp_path in SUSPICIOUS_PATHS:
+            if susp_path in path_lower:
+                # Track how many different suspicious paths this IP has hit
+                probe_key = f"_probe_{ip}"
+                if probe_key not in self._req_counts:
+                    self._req_counts[probe_key] = []
+                # Store the path as a string entry for counting unique paths
+                if path_lower not in [str(x) for x in self._req_counts[probe_key] if isinstance(x, str)]:
+                    self._req_counts[probe_key].append(path_lower)
+                unique_probes = len([x for x in self._req_counts[probe_key] if isinstance(x, str)])
+                events.append({
+                    "ip": ip, "event": "recon_probe", "severity": "medium" if unique_probes < 5 else "high",
+                    "details": f"Path suspeito: {susp_path} ({unique_probes} paths únicos sondados)",
+                    "path": path,
+                    "_auto_block": unique_probes >= 5,  # 5+ caminhos diferentes = scan ativo → bloquear
+                })
+                break
+
+        # 7. Empty/bot User-Agent heuristic
+        #    Requests with no UA or with generic single-word UAs are suspicious
+        if not user_agent or user_agent.strip() == "" or (len(user_agent) < 10 and " " not in user_agent):
+            # Only flag if combined with non-standard path
+            if path_lower not in ("/", "/api/health", "/favicon.ico", "/robots.txt"):
+                events.append({
+                    "ip": ip, "event": "suspicious_ua", "severity": "low",
+                    "details": f"User-Agent suspeito: '{user_agent or '(vazio)'}' em {path}",
+                    "path": path, "_auto_block": False,
                 })
 
         # ─── Process events ───
