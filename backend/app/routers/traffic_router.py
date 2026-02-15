@@ -135,6 +135,8 @@ _INFRA_CIDRS = [
     # Google Cloud — Render health checks
     ip_network("34.82.0.0/16"),     # 34.82.x.x
     ip_network("35.197.0.0/16"),    # 35.197.x.x
+    # Microsoft Azure — bots / monitoring
+    ip_network("104.210.0.0/16"),   # 104.210.x.x
 ]
 
 def _is_infra_ip(ip_str: str) -> bool:
@@ -184,7 +186,11 @@ async def get_connections():
         seen: dict = {}
         for row in rows:
             ip = row.get("ip", "")
+            method = row.get("method", "")
             if not ip or ip in _LOCALHOST_IPS or _is_infra_ip(ip):
+                continue
+            # Skip CORS preflight — browser noise, no fingerprint
+            if method == "OPTIONS":
                 continue
 
             fp = row.get("fingerprint_hash", "") or ""
