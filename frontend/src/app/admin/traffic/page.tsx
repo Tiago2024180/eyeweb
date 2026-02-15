@@ -428,6 +428,8 @@ export default function TrafficMonitorPage() {
       sql_injection: 'SQL Injection',
       path_traversal: 'Path Traversal',
       brute_force: 'Brute Force',
+      recon_probe: 'Recon Probe',
+      suspicious_ua: 'User-Agent Suspeito',
     };
     return labels[e] || e;
   };
@@ -439,6 +441,8 @@ export default function TrafficMonitorPage() {
       sql_injection: 'fa-database',
       path_traversal: 'fa-folder-tree',
       brute_force: 'fa-key',
+      recon_probe: 'fa-binoculars',
+      suspicious_ua: 'fa-user-secret',
     };
     return icons[e] || 'fa-triangle-exclamation';
   };
@@ -799,7 +803,6 @@ export default function TrafficMonitorPage() {
                     <td className="col-time-ws">{formatTimeWS(entry.timestamp)}</td>
                     <td>
                       <span className={`type-badge type-${entry._type === 'threat' ? 'threat' : entry.method === 'PAGE' ? 'page' : 'request'}`}>
-                        <i className={`fa-solid ${getTypeIcon(entry)}`}></i>
                         {getTypeLabel(entry)}
                       </span>
                     </td>
@@ -807,7 +810,6 @@ export default function TrafficMonitorPage() {
                     <td>
                       {entry._type === 'threat' ? (
                         <span className={`event-badge event-${entry.event}`}>
-                          <i className={`fa-solid ${getEventIcon(entry.event || '')}`}></i>
                           {getEventLabel(entry.event || '')}
                         </span>
                       ) : (

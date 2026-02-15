@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # ─── PATHS TO SKIP (avoid feedback loops) ────────────
 SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health"}
-SKIP_PREFIXES = ("/api/admin/traffic", "/api/admin-heartbeat", "/api/visit", "/api/heartbeat", "/api/check-ip")
+SKIP_PREFIXES = ("/api/admin/traffic", "/api/admin-heartbeat", "/api/visit", "/api/heartbeat", "/api/check-ip", "/api/register-fingerprint")
 
 # ─── THREAT SIGNATURES ───────────────────────────────
 SCANNER_AGENTS = [
@@ -338,19 +338,21 @@ class TrafficService:
             pass  # Fire-and-forget
 
         # ─── Suspicious detection ───
-        await self._detect_suspicious(ip, method, path, user_agent, now)
+        await self._detect_suspicious(ip, method, path, user_agent, now, geo)
 
     # ═══════════════════════════════════════════════════
     # SUSPICIOUS ACTIVITY DETECTION
     # ═══════════════════════════════════════════════════
 
     async def _detect_suspicious(self, ip: str, method: str, path: str,
-                                  user_agent: str, now: float):
+                                  user_agent: str, now: float,
+                                  geo: dict | None = None):
         """Detect attack patterns and auto-block if necessary."""
         # Administradores nunca são tratados como suspeitos
         if self.is_admin_ip(ip):
             return
 
+        geo = geo or {}
         events = []
 
         # 1. Rate limiting (>100 req/min)
@@ -464,7 +466,10 @@ class TrafficService:
         for event in events:
             auto_block = event.pop("_auto_block", False)
 
-            # Insert to suspicious table
+            # Insert to suspicious table (include geo data)
+            event["country"] = geo.get("country", "")
+            event["city"] = geo.get("city", "")
+            event["is_vpn"] = geo.get("is_vpn", False)
             try:
                 async with httpx.AsyncClient() as c:
                     await c.post(
