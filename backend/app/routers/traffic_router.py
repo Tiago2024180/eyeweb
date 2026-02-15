@@ -124,19 +124,37 @@ _INFRA_CIDRS = [
     # AWS eu-west-3 (Paris) — n8n workflows / HuggingFace dataset
     ip_network("13.36.0.0/14"),     # 13.36.x – 13.39.x
     ip_network("15.188.0.0/16"),    # 15.188.x.x
+    ip_network("15.236.0.0/16"),    # 15.236.x.x
     ip_network("35.180.0.0/16"),    # 35.180.x.x
+    ip_network("51.44.0.0/16"),     # 51.44.x.x  (n8n Paris)
     ip_network("52.47.0.0/16"),     # 52.47.x.x
+    # AWS us-west-1 (N. California) — Render backend
+    ip_network("13.56.0.0/15"),     # 13.56.x – 13.57.x
+    ip_network("54.176.0.0/15"),    # 54.176 – 54.177
     # DigitalOcean — Vercel edge / ISR / cron
     ip_network("64.23.0.0/16"),     # 64.23.x.x
+    ip_network("134.199.0.0/16"),   # 134.199.x.x
+    ip_network("137.184.0.0/16"),   # 137.184.x.x
     ip_network("146.190.0.0/16"),   # 146.190.x.x
     ip_network("147.182.0.0/16"),   # 147.182.x.x
+    ip_network("159.65.0.0/16"),    # 159.65.x.x
+    ip_network("159.89.0.0/16"),    # 159.89.x.x
+    ip_network("164.90.0.0/15"),    # 164.90.x – 164.91.x
     ip_network("164.92.0.0/16"),    # 164.92.x.x
     ip_network("165.232.0.0/16"),   # 165.232.x.x
+    ip_network("167.71.0.0/16"),    # 167.71.x.x
+    ip_network("167.172.0.0/16"),   # 167.172.x.x
+    ip_network("178.128.0.0/16"),   # 178.128.x.x
+    ip_network("188.166.0.0/16"),   # 188.166.x.x
     # Google Cloud — Render health checks
-    ip_network("34.82.0.0/16"),     # 34.82.x.x
+    ip_network("34.82.0.0/15"),     # 34.82 – 34.83
     ip_network("35.197.0.0/16"),    # 35.197.x.x
+    ip_network("35.199.0.0/16"),    # 35.199.x.x
+    ip_network("35.233.0.0/16"),    # 35.233.x.x
+    ip_network("35.247.0.0/16"),    # 35.247.x.x
     # Microsoft Azure — bots / monitoring
     ip_network("104.210.0.0/16"),   # 104.210.x.x
+    ip_network("104.40.0.0/16"),    # 104.40.x.x
 ]
 
 def _is_infra_ip(ip_str: str) -> bool:
