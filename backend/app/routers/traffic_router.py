@@ -102,11 +102,16 @@ class UnblockIPRequest(BaseModel):
 
 class BlockDeviceRequest(BaseModel):
     fingerprint_hash: str
-    reason: str
+    reason: str = ""
 
 
 class UnblockDeviceRequest(BaseModel):
     fingerprint_hash: str
+
+
+class UpdateDeviceReasonRequest(BaseModel):
+    fingerprint_hash: str
+    reason: str
 
 
 class RegisterFPRequest(BaseModel):
@@ -240,6 +245,7 @@ async def get_connections():
                 seen[group_key] = {
                     "fingerprint_hash": fp,
                     "ips": [],
+                    "ip_details": [],
                     "country": row.get("country", ""),
                     "city": row.get("city", ""),
                     "is_vpn": row.get("is_vpn", False),
@@ -248,19 +254,28 @@ async def get_connections():
                     "requests": 0,
                     "online": False,
                     "_ips_set": set(),
+                    "_ip_vpn": {},   # ip -> is_vpn
+                    "_ip_last": {},  # ip -> last_seen timestamp
                     "_last_seen": "",
                 }
 
             conn = seen[group_key]
             conn["requests"] += 1
 
-            # Track unique IPs
+            # Track unique IPs with VPN info
+            is_vpn_row = bool(row.get("is_vpn"))
             if ip not in conn["_ips_set"]:
                 conn["_ips_set"].add(ip)
-                conn["ips"].append(ip)
+                conn["_ip_vpn"][ip] = is_vpn_row
+            elif is_vpn_row:
+                # If any request from this IP was VPN, mark it
+                conn["_ip_vpn"][ip] = True
+
+            # Always update last seen per IP (rows ordered ASC)
+            conn["_ip_last"][ip] = row.get("created_at", "")
 
             # Track VPN flag
-            if row.get("is_vpn"):
+            if is_vpn_row:
                 conn["is_vpn"] = True
 
             # Prefer PAGE over GET
@@ -269,6 +284,20 @@ async def get_connections():
 
             # Track most recent activity (rows are ordered ASC)
             conn["_last_seen"] = row.get("created_at", "")
+
+        # Build ip_details and order IPs by most recent last (so most recent is first)
+        for conn in seen.values():
+            # Sort IPs: most recently seen first
+            ip_list = sorted(
+                conn["_ips_set"],
+                key=lambda x: conn["_ip_last"].get(x, ""),
+                reverse=True,
+            )
+            conn["ips"] = ip_list
+            conn["ip_details"] = [
+                {"ip": ip, "is_vpn": conn["_ip_vpn"].get(ip, False)}
+                for ip in ip_list
+            ]
 
         # Determine online: heartbeat (in-memory) OR recent Supabase activity (< 2 min)
         # Also check if any IP belongs to an admin
@@ -290,6 +319,8 @@ async def get_connections():
             conn["online"] = has_heartbeat or recent
             conn["is_admin"] = is_admin
             del conn["_ips_set"]
+            del conn["_ip_vpn"]
+            del conn["_ip_last"]
 
         # Sort: online first, then by most requests
         connections = sorted(
@@ -578,6 +609,31 @@ async def unblock_device(req: UnblockDeviceRequest):
     ts = TrafficService.get()
     await ts.unblock_device(req.fingerprint_hash)
     return {"success": True, "message": f"Device {req.fingerprint_hash[:12]}... desbloqueado"}
+
+
+@router.post("/update-device-reason")
+async def update_device_reason(req: UpdateDeviceReasonRequest):
+    """Update the reason for a blocked device."""
+    url = _url()
+    headers = _headers()
+    if not url:
+        raise HTTPException(500, "Supabase not configured")
+
+    try:
+        async with httpx.AsyncClient() as c:
+            r = await c.patch(
+                f"{url}/rest/v1/traffic_blocked_devices?fingerprint_hash=eq.{req.fingerprint_hash}",
+                headers=headers,
+                json={"reason": req.reason},
+                timeout=5.0,
+            )
+        if r.status_code in (200, 204):
+            return {"success": True}
+        raise HTTPException(500, "Failed to update reason")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 # ═══════════════════════════════════════════════════════

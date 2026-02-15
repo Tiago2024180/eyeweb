@@ -64,6 +64,7 @@ interface BlockedIP {
 interface Connection {
   fingerprint_hash: string;
   ips: string[];
+  ip_details: { ip: string; is_vpn: boolean }[];
   country: string;
   city: string;
   is_vpn: boolean;
@@ -143,6 +144,22 @@ export default function TrafficMonitorPage() {
   const [showReasonModal, setShowReasonModal] = useState(false);
   const [reasonModalData, setReasonModalData] = useState<{ simple: string; detail: string }>({ simple: '', detail: '' });
   const [actionLoading, setActionLoading] = useState(false);
+
+  // IP details modal
+  const [showIpModal, setShowIpModal] = useState(false);
+  const [ipModalData, setIpModalData] = useState<{ ip_details: { ip: string; is_vpn: boolean }[] }>({ ip_details: [] });
+
+  // Post-block reason modal (appears after blocking without reason)
+  const [showPostBlockReason, setShowPostBlockReason] = useState(false);
+  const [postBlockFp, setPostBlockFp] = useState('');
+  const [postBlockReasonText, setPostBlockReasonText] = useState('');
+  const [postBlockSaving, setPostBlockSaving] = useState(false);
+
+  // Edit reason modal (from blocked tab, clickable empty reason)
+  const [showEditReason, setShowEditReason] = useState(false);
+  const [editReasonFp, setEditReasonFp] = useState('');
+  const [editReasonText, setEditReasonText] = useState('');
+  const [editReasonSaving, setEditReasonSaving] = useState(false);
 
   // ─── HELPER: Parse auto-block reason into simple + detail ───
   const parseAutoReason = (reason: string): { simple: string; detail: string } => {
@@ -256,18 +273,19 @@ export default function TrafficMonitorPage() {
   // ─── ACTIONS ─────────────────────────────────────────
 
   const handleBlock = async () => {
-    if ((!blockTargetIp && !blockTargetFp) || !blockReason.trim()) return;
+    if (!blockTargetIp && !blockTargetFp) return;
     setActionLoading(true);
+    const reason = blockReason.trim() || '';
     try {
       const authHeaders = await getAuthHeaders();
-      // Se temos fingerprint → bloquear dispositivo (também bloqueia todos os IPs)
       if (blockTargetFp) {
         const r = await fetch(`${API}/api/admin/traffic/block-device`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ fingerprint_hash: blockTargetFp, reason: blockReason }),
+          body: JSON.stringify({ fingerprint_hash: blockTargetFp, reason }),
         });
         if (r.ok) {
+          const fpToPrompt = blockTargetFp;
           setShowBlockModal(false);
           setBlockTargetIp('');
           setBlockTargetFp('');
@@ -275,16 +293,21 @@ export default function TrafficMonitorPage() {
           fetchStats();
           fetchBlocked();
           if (activeTab === 'logs') fetchConnections();
+          // If no reason was provided, show the post-block reason modal
+          if (!reason) {
+            setPostBlockFp(fpToPrompt);
+            setPostBlockReasonText('');
+            setShowPostBlockReason(true);
+          }
         } else {
           const data = await r.json().catch(() => ({}));
           alert(data.detail || 'Erro ao bloquear dispositivo');
         }
       } else {
-        // Sem fingerprint → bloquear só o IP
         const r = await fetch(`${API}/api/admin/traffic/block-ip`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ ip: blockTargetIp, reason: blockReason }),
+          body: JSON.stringify({ ip: blockTargetIp, reason: reason || 'Bloqueio manual' }),
         });
         if (r.ok) {
           setShowBlockModal(false);
@@ -302,6 +325,21 @@ export default function TrafficMonitorPage() {
     } catch {} finally {
       setActionLoading(false);
     }
+  };
+
+  const handleSaveReason = async (fp: string, reason: string, onDone: () => void) => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const r = await fetch(`${API}/api/admin/traffic/update-device-reason`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ fingerprint_hash: fp, reason }),
+      });
+      if (r.ok) {
+        fetchBlocked();
+        onDone();
+      }
+    } catch {}
   };
 
   const handleUnblock = async (ip: string) => {
@@ -633,12 +671,14 @@ export default function TrafficMonitorPage() {
                         )}
                       </td>
                       <td className="col-ips">
-                        {conn.ips.map((ip, i) => (
-                          <span key={ip} className="ip-tag">
-                            <code>{ip}</code>
-                            {i < conn.ips.length - 1 && ' '}
-                          </span>
-                        ))}
+                        <span
+                          className={`ip-tag ip-clickable${conn.ips.length > 1 ? ' ip-has-more' : ''}`}
+                          onClick={() => { if (conn.ip_details?.length > 0) { setIpModalData({ ip_details: conn.ip_details }); setShowIpModal(true); } }}
+                          title={conn.ips.length > 1 ? `${conn.ips.length} IPs — clique para ver todos` : conn.ips[0]}
+                        >
+                          <code>{conn.ips[0]}</code>
+                          {conn.ips.length > 1 && <span className="ip-more-badge">+{conn.ips.length - 1}</span>}
+                        </span>
                       </td>
                       <td className="col-location">
                         {conn.country || '—'}
@@ -857,6 +897,8 @@ export default function TrafficMonitorPage() {
                   {blockedDevices.map((d) => {
                     const isAuto = d.blocked_by === 'system';
                     const parsed = isAuto ? parseAutoReason(d.reason) : null;
+                    const hasReason = d.reason && d.reason.trim().length > 0;
+                    const ips = d.associated_ips || [];
                     return (
                       <tr key={d.id}>
                         <td className="col-device">
@@ -866,15 +908,19 @@ export default function TrafficMonitorPage() {
                           </span>
                         </td>
                         <td className="col-ips">
-                          {(d.associated_ips || []).map((ip) => (
-                            <span key={ip} className="ip-tag">
-                              <code>{ip}</code>
+                          {ips.length > 0 ? (
+                            <span
+                              className={`ip-tag ip-clickable${ips.length > 1 ? ' ip-has-more' : ''}`}
+                              onClick={() => { setIpModalData({ ip_details: ips.map(ip => ({ ip, is_vpn: false })) }); setShowIpModal(true); }}
+                              title={ips.length > 1 ? `${ips.length} IPs — clique para ver todos` : ips[0]}
+                            >
+                              <code>{ips[0]}</code>
+                              {ips.length > 1 && <span className="ip-more-badge">+{ips.length - 1}</span>}
                             </span>
-                          ))}
-                          {(!d.associated_ips || d.associated_ips.length === 0) && '—'}
+                          ) : '—'}
                         </td>
                         <td className="col-reason">
-                          {isAuto && parsed ? (
+                          {isAuto && parsed && hasReason ? (
                             <span
                               className="reason-clickable"
                               onClick={() => { setReasonModalData(parsed); setShowReasonModal(true); }}
@@ -882,8 +928,16 @@ export default function TrafficMonitorPage() {
                             >
                               {parsed.simple}
                             </span>
-                          ) : (
+                          ) : hasReason ? (
                             d.reason
+                          ) : (
+                            <span
+                              className="reason-empty-clickable"
+                              onClick={() => { setEditReasonFp(d.fingerprint_hash); setEditReasonText(''); setShowEditReason(true); }}
+                              title="Clique para adicionar um motivo"
+                            >
+                              Sem motivo adicionado ainda.
+                            </span>
                           )}
                         </td>
                         <td>
@@ -926,22 +980,11 @@ export default function TrafficMonitorPage() {
               <i className={`fa-solid ${blockTargetFp ? 'fa-fingerprint' : 'fa-ban'}`}></i>
               {blockTargetFp ? 'Bloquear Dispositivo' : 'Bloquear IP'}
             </h3>
-            {blockTargetFp ? (
-              <div className="modal-target-info">
-                <p className="modal-fp">
-                  <i className="fa-solid fa-fingerprint"></i>
-                  {blockTargetFp.slice(0, 16)}…
-                </p>
-                <p className="modal-ip-note">
-                  <i className="fa-solid fa-circle-info"></i>
-                  Todos os IPs associados também serão bloqueados
-                </p>
-              </div>
-            ) : (
+            {!blockTargetFp && (
               <p className="modal-ip">{blockTargetIp}</p>
             )}
             <div className="modal-field">
-              <label>Motivo do bloqueio</label>
+              <label>Motivo do bloqueio (opcional)</label>
               <textarea
                 value={blockReason}
                 onChange={(e) => setBlockReason(e.target.value)}
@@ -957,7 +1000,7 @@ export default function TrafficMonitorPage() {
               <button
                 className="modal-confirm"
                 onClick={handleBlock}
-                disabled={!blockReason.trim() || actionLoading}
+                disabled={actionLoading}
               >
                 {actionLoading ? (
                   <i className="fa-solid fa-spinner fa-spin"></i>
@@ -992,6 +1035,129 @@ export default function TrafficMonitorPage() {
             <div className="modal-actions">
               <button className="modal-cancel" onClick={() => setShowReasonModal(false)}>
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ IP DETAILS MODAL ═══ */}
+      {showIpModal && (
+        <div className="modal-overlay" onClick={() => setShowIpModal(false)}>
+          <div className="modal-content ip-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              <i className="fa-solid fa-network-wired"></i>
+              IPs do Dispositivo
+            </h3>
+            <div className="ip-modal-body">
+              {ipModalData.ip_details.length > 0 && (
+                <>
+                  <div className="ip-modal-current">
+                    <label>IP Atual</label>
+                    <div className="ip-modal-row">
+                      <code>{ipModalData.ip_details[0].ip}</code>
+                      <span className={`vpn-indicator ${ipModalData.ip_details[0].is_vpn ? 'is-vpn' : 'no-vpn'}`}>
+                        {ipModalData.ip_details[0].is_vpn ? 'Sim' : 'Não'}
+                      </span>
+                    </div>
+                  </div>
+                  {ipModalData.ip_details.length > 1 && (
+                    <div className="ip-modal-history">
+                      <label>IPs que foram usados</label>
+                      {ipModalData.ip_details.slice(1).map((d) => (
+                        <div key={d.ip} className="ip-modal-row">
+                          <code>{d.ip}</code>
+                          <span className={`vpn-indicator ${d.is_vpn ? 'is-vpn' : 'no-vpn'}`}>
+                            {d.is_vpn ? 'Sim' : 'Não'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setShowIpModal(false)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ POST-BLOCK REASON MODAL ═══ */}
+      {showPostBlockReason && (
+        <div className="modal-overlay" onClick={() => setShowPostBlockReason(false)}>
+          <div className="modal-content reason-prompt-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              <i className="fa-solid fa-pen"></i>
+              Adicionar Motivo
+            </h3>
+            <p className="reason-prompt-text">O dispositivo foi bloqueado. Quer adicionar um motivo?</p>
+            <div className="modal-field">
+              <textarea
+                value={postBlockReasonText}
+                onChange={(e) => setPostBlockReasonText(e.target.value)}
+                placeholder="Ex: Atividade suspeita..."
+                rows={3}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setShowPostBlockReason(false)}>
+                Cancelar
+              </button>
+              <button
+                className="modal-confirm modal-confirm-save"
+                disabled={!postBlockReasonText.trim() || postBlockSaving}
+                onClick={async () => {
+                  setPostBlockSaving(true);
+                  await handleSaveReason(postBlockFp, postBlockReasonText.trim(), () => setShowPostBlockReason(false));
+                  setPostBlockSaving(false);
+                }}
+              >
+                {postBlockSaving ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-check"></i>}
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ EDIT REASON MODAL (from blocked tab) ═══ */}
+      {showEditReason && (
+        <div className="modal-overlay" onClick={() => setShowEditReason(false)}>
+          <div className="modal-content reason-prompt-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>
+              <i className="fa-solid fa-pen"></i>
+              Adicionar Motivo
+            </h3>
+            <div className="modal-field">
+              <label>Motivo do bloqueio</label>
+              <textarea
+                value={editReasonText}
+                onChange={(e) => setEditReasonText(e.target.value)}
+                placeholder="Ex: Atividade suspeita..."
+                rows={3}
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button className="modal-cancel" onClick={() => setShowEditReason(false)}>
+                Cancelar
+              </button>
+              <button
+                className="modal-confirm modal-confirm-save"
+                disabled={!editReasonText.trim() || editReasonSaving}
+                onClick={async () => {
+                  setEditReasonSaving(true);
+                  await handleSaveReason(editReasonFp, editReasonText.trim(), () => setShowEditReason(false));
+                  setEditReasonSaving(false);
+                }}
+              >
+                {editReasonSaving ? <i className="fa-solid fa-spinner fa-spin"></i> : <i className="fa-solid fa-check"></i>}
+                Guardar
               </button>
             </div>
           </div>
