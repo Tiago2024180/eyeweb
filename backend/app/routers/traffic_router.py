@@ -18,6 +18,7 @@ Endpoints (PÚBLICOS — sem autenticação):
     GET  /check-ip                  — Check if IP is blocked (middleware)
     POST /visit                     — Log page visit from frontend
     POST /heartbeat                 — Heartbeat to maintain online status
+    POST /admin-heartbeat            — Admin heartbeat (verifies admin + tags IP)
 """
 
 import os
@@ -270,8 +271,10 @@ async def get_connections():
             conn["_last_seen"] = row.get("created_at", "")
 
         # Determine online: heartbeat (in-memory) OR recent Supabase activity (< 2 min)
+        # Also check if any IP belongs to an admin
         for conn in seen.values():
             has_heartbeat = any(ts.is_online(ip) for ip in conn["_ips_set"])
+            is_admin = any(ts.is_admin_ip(ip) for ip in conn["_ips_set"])
             recent = False
             last_seen = conn.pop("_last_seen", "")
             if last_seen:
@@ -281,6 +284,7 @@ async def get_connections():
                 except Exception:
                     pass
             conn["online"] = has_heartbeat or recent
+            conn["is_admin"] = is_admin
             del conn["_ips_set"]
 
         # Sort: online first, then by most requests
@@ -528,7 +532,19 @@ async def block_ip(req: BlockIPRequest):
     """Manually block an IP address."""
     from ..services.traffic_service import TrafficService
     ts = TrafficService.get()
-    await ts.block_ip(req.ip, req.reason, "admin")
+
+    # Impedir bloqueio de IPs de administradores
+    if ts.is_admin_ip(req.ip):
+        raise HTTPException(
+            status_code=403,
+            detail=f"IP {req.ip} pertence a um administrador e não pode ser bloqueado"
+        )
+
+    try:
+        await ts.block_ip(req.ip, req.reason, "admin")
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
     return {"success": True, "message": f"IP {req.ip} bloqueado"}
 
 
@@ -680,6 +696,36 @@ async def heartbeat(request: Request):
 
     ts = TrafficService.get()
     ts.heartbeat(ip)
+    return {"ok": True}
+
+
+class AdminHeartbeatRequest(BaseModel):
+    ip: str
+
+
+@visit_router.post("/admin-heartbeat")
+async def admin_heartbeat(req: AdminHeartbeatRequest, request: Request):
+    """
+    Admin heartbeat — verifica token admin e regista IP como admin.
+    Chamado pelo Next.js proxy /api/admin-heartbeat a cada 20s
+    quando o admin está nas páginas /admin/*.
+    IPs admin não podem ser bloqueados.
+    """
+    from ..services.traffic_service import TrafficService
+
+    # Verificar token admin (mesma lógica de verify_admin mas manual)
+    try:
+        admin_data = await verify_admin(request)
+    except HTTPException:
+        return {"ok": False, "error": "unauthorized"}
+
+    ip = req.ip or ""
+    if not ip:
+        return {"ok": False}
+
+    ts = TrafficService.get()
+    ts.heartbeat(ip)
+    ts.register_admin_ip(ip)
     return {"ok": True}
 
 

@@ -334,6 +334,10 @@
   background: rgba(251, 191, 36, 0.03);
 }
 
+.row-admin {
+  background: rgba(59, 130, 246, 0.06) !important;
+}
+
 /* Column styles */
 .col-ip code {
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
@@ -502,6 +506,34 @@
 
 .already-blocked {
   color: #ef4444;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+/* Admin badge */
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.admin-badge i {
+  font-size: 0.65rem;
+}
+
+.admin-protected {
+  color: #60a5fa;
   font-size: 0.85rem;
   opacity: 0.7;
 }

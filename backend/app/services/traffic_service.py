@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 # ─── PATHS TO SKIP (avoid feedback loops) ────────────
 SKIP_PATHS = {"/docs", "/redoc", "/openapi.json", "/health"}
-SKIP_PREFIXES = ("/api/admin/traffic", "/api/visit", "/api/heartbeat", "/api/check-ip")
+SKIP_PREFIXES = ("/api/admin/traffic", "/api/admin-heartbeat", "/api/visit", "/api/heartbeat", "/api/check-ip")
 
 # ─── THREAT SIGNATURES ───────────────────────────────
 SCANNER_AGENTS = [
@@ -99,6 +99,7 @@ class TrafficService:
         self._req_counts: Dict[str, list] = defaultdict(list)
         self._geo_cache: Dict[str, dict] = {}
         self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
+        self._admin_ips: Dict[str, float] = {}    # ip → last admin heartbeat timestamp
         self.blocked_devices: set = set()  # fingerprint hashes bloqueados
         self.blocked_hardware_hashes: set = set()  # hardware hashes bloqueados (anti browser-switch)
         self._blocked_fp_components: Dict[str, dict] = {}  # fp_hash → components (para fuzzy matching)
@@ -188,6 +189,18 @@ class TrafficService:
         """Check if IP sent a heartbeat in the last 60 seconds."""
         last = self._heartbeats.get(ip, 0)
         return (time.time() - last) < 60
+
+    def register_admin_ip(self, ip: str):
+        """Tag an IP as belonging to a verified admin."""
+        if ip in self._LOCALHOST:
+            return
+        self._admin_ips[ip] = time.time()
+        logger.info(f"🛡️ Admin IP registado: {ip}")
+
+    def is_admin_ip(self, ip: str) -> bool:
+        """Check if IP is a known admin (heartbeat within last 5 minutes)."""
+        last = self._admin_ips.get(ip, 0)
+        return (time.time() - last) < 300  # 5 min window
 
     def online_count(self) -> int:
         """Count unique IPs with active heartbeat (online right now)."""
@@ -436,6 +449,11 @@ class TrafficService:
         """Block an IP address and save a snapshot of its recent logs."""
         if not self._configured:
             return
+
+        # Impedir bloqueio de IPs de administradores
+        if self.is_admin_ip(ip):
+            logger.warning(f"🛡️ Tentativa de bloquear IP admin ignorada: {ip}")
+            raise ValueError(f"IP {ip} pertence a um administrador e não pode ser bloqueado")
 
         geo = self._geo_cache.get(ip, {})
         req_count = len(self._req_counts.get(ip, []))

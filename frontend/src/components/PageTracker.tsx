@@ -18,6 +18,7 @@ import {
   cacheFingerprint,
   getCachedFingerprint,
 } from '@/lib/fingerprint';
+import { supabase } from '@/lib/supabase';
 
 export default function PageTracker() {
   const pathname = usePathname();
@@ -73,21 +74,33 @@ export default function PageTracker() {
 
   // ─── Heartbeat periódico (20s) — manter estado online ──
   useEffect(() => {
-    // Não executar em rotas admin
-    if (pathname.startsWith('/admin')) return;
+    const isAdmin = pathname.startsWith('/admin');
 
     const sendHeartbeat = async () => {
       try {
-        const r = await fetch('/api/heartbeat', {
-          method: 'POST',
-          keepalive: true,
-        });
+        if (isAdmin) {
+          // Admin heartbeat — envia token Supabase para o backend identificar como admin
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            await fetch('/api/admin-heartbeat', {
+              method: 'POST',
+              headers: { 'Authorization': `Bearer ${session.access_token}` },
+              keepalive: true,
+            });
+          }
+        } else {
+          // Heartbeat normal para visitantes
+          const r = await fetch('/api/heartbeat', {
+            method: 'POST',
+            keepalive: true,
+          });
 
-        if (r.ok) {
-          const data = await r.json();
-          // Se o heartbeat detectar que o dispositivo foi bloqueado
-          if (data.blocked) {
-            setDeviceBlocked(true);
+          if (r.ok) {
+            const data = await r.json();
+            // Se o heartbeat detectar que o dispositivo foi bloqueado
+            if (data.blocked) {
+              setDeviceBlocked(true);
+            }
           }
         }
       } catch {

@@ -71,6 +71,7 @@ interface Connection {
   method: string;
   requests: number;
   online: boolean;
+  is_admin: boolean;
 }
 
 interface BlockedDevice {
@@ -579,6 +580,7 @@ export default function TrafficMonitorPage() {
                       key={conn.fingerprint_hash || conn.ips[0] || idx}
                       className={
                         isBlockedConn ? 'row-blocked' :
+                        conn.is_admin ? 'row-admin' :
                         conn.is_vpn ? 'row-vpn' :
                         conn.online ? 'row-online' : ''
                       }
@@ -588,6 +590,11 @@ export default function TrafficMonitorPage() {
                           <span className="online-dot"></span>
                           {conn.online ? 'Online' : 'Offline'}
                         </span>
+                        {conn.is_admin && (
+                          <span className="admin-badge" title="Administrador verificado">
+                            <i className="fa-solid fa-shield-halved"></i> Admin
+                          </span>
+                        )}
                       </td>
                       <td className="col-device">
                         {conn.fingerprint_hash ? (
@@ -629,7 +636,7 @@ export default function TrafficMonitorPage() {
                         <span className="requests-count">{conn.requests}</span>
                       </td>
                       <td className="col-actions">
-                        {!isBlockedConn && conn.ips[0] !== '127.0.0.1' && (
+                        {!isBlockedConn && !conn.is_admin && conn.ips[0] !== '127.0.0.1' && (
                           <button
                             className="action-btn block-btn"
                             onClick={() => openBlockModal(conn.ips[0], conn.fingerprint_hash)}
@@ -637,6 +644,11 @@ export default function TrafficMonitorPage() {
                           >
                             <i className={`fa-solid ${conn.fingerprint_hash ? 'fa-fingerprint' : 'fa-ban'}`}></i>
                           </button>
+                        )}
+                        {conn.is_admin && (
+                          <span className="admin-protected" title="Admin não pode ser bloqueado">
+                            <i className="fa-solid fa-shield-halved"></i>
+                          </span>
                         )}
                         {isBlockedConn && (
                           <span className="already-blocked" title="Bloqueado">
