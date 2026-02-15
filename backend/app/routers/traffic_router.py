@@ -172,6 +172,11 @@ _INFRA_CIDRS = [
     ip_network("188.166.0.0/16"),   # 188.166.x.x
     ip_network("206.189.0.0/16"),   # 206.189.x.x
     ip_network("209.97.0.0/16"),    # 209.97.x.x
+    # ── AWS (additional ranges) ──
+    ip_network("50.16.0.0/14"),     # 50.16–19   (EC2 us-west-1)
+    ip_network("184.169.0.0/16"),   # 184.169.x.x (EC2 us-west-1)
+    # ── DigitalOcean (additional) ──
+    ip_network("209.38.0.0/16"),    # 209.38.x.x
     # ── Google Cloud (Render) ──
     ip_network("34.0.0.0/8"),       # 34.x.x.x   (GCP global)
     ip_network("35.184.0.0/13"),    # 35.184–191
@@ -179,6 +184,9 @@ _INFRA_CIDRS = [
     ip_network("35.208.0.0/12"),    # 35.208–223
     ip_network("35.224.0.0/12"),    # 35.224–239
     ip_network("35.240.0.0/12"),    # 35.240–255
+    # ── Google (crawlers / bots / services) ──
+    ip_network("66.102.0.0/16"),    # 66.102.x.x (Google services)
+    ip_network("66.249.0.0/16"),    # 66.249.x.x (Googlebot)
     # ── Microsoft Azure ──
     ip_network("104.40.0.0/13"),    # 104.40–47
     ip_network("104.208.0.0/13"),   # 104.208–215
@@ -556,6 +564,29 @@ async def get_blocked_ips():
 
         blocked_ips = r1.json() if r1.status_code == 200 else []
         blocked_devices = r2.json() if r2.status_code == 200 else []
+
+        # Enrich blocked devices with ip_details (VPN info per IP)
+        all_ips: set = set()
+        for d in blocked_devices:
+            for ip in (d.get("associated_ips") or []):
+                all_ips.add(ip)
+        vpn_map: dict = {}
+        if all_ips:
+            try:
+                ips_csv = ",".join(f'"{ip}"' for ip in all_ips)
+                async with httpx.AsyncClient() as c2:
+                    rv = await c2.get(
+                        f"{url}/rest/v1/traffic_vpn_cache?ip=in.({ips_csv})&select=ip,is_vpn",
+                        headers=headers, timeout=10.0,
+                    )
+                if rv.status_code == 200:
+                    for row in rv.json():
+                        vpn_map[row["ip"]] = bool(row.get("is_vpn"))
+            except Exception:
+                pass
+        for d in blocked_devices:
+            ips = d.get("associated_ips") or []
+            d["ip_details"] = [{"ip": ip, "is_vpn": vpn_map.get(ip, False)} for ip in ips]
 
         return {"blocked": blocked_ips, "blocked_devices": blocked_devices}
     except Exception:

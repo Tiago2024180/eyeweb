@@ -82,6 +82,7 @@ interface BlockedDevice {
   blocked_by: string;
   components: Record<string, unknown>;
   associated_ips: string[];
+  ip_details: { ip: string; is_vpn: boolean }[];
   created_at: string;
 }
 
@@ -911,7 +912,7 @@ export default function TrafficMonitorPage() {
                           {ips.length > 0 ? (
                             <span
                               className={`ip-tag ip-clickable${ips.length > 1 ? ' ip-has-more' : ''}`}
-                              onClick={() => { setIpModalData({ ip_details: ips.map(ip => ({ ip, is_vpn: false })) }); setShowIpModal(true); }}
+                              onClick={() => { setIpModalData({ ip_details: d.ip_details && d.ip_details.length > 0 ? d.ip_details : ips.map(ip => ({ ip, is_vpn: false })) }); setShowIpModal(true); }}
                               title={ips.length > 1 ? `${ips.length} IPs — clique para ver todos` : ips[0]}
                             >
                               <code>{ips[0]}</code>
@@ -1052,6 +1053,10 @@ export default function TrafficMonitorPage() {
             <div className="ip-modal-body">
               {ipModalData.ip_details.length > 0 && (
                 <>
+                  <div className="ip-modal-table-header">
+                    <span></span>
+                    <span>VPN</span>
+                  </div>
                   <div className="ip-modal-current">
                     <label>IP Atual</label>
                     <div className="ip-modal-row">
