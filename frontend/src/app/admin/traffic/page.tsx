@@ -250,6 +250,9 @@ export default function TrafficMonitorPage() {
           fetchStats();
           fetchBlocked();
           if (activeTab === 'logs') fetchConnections();
+        } else {
+          const data = await r.json().catch(() => ({}));
+          alert(data.detail || 'Erro ao bloquear dispositivo');
         }
       } else {
         // Sem fingerprint → bloquear só o IP
@@ -266,6 +269,9 @@ export default function TrafficMonitorPage() {
           fetchStats();
           fetchBlocked();
           if (activeTab === 'logs') fetchConnections();
+        } else {
+          const data = await r.json().catch(() => ({}));
+          alert(data.detail || 'Erro ao bloquear IP');
         }
       }
     } catch {} finally {

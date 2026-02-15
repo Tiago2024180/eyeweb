@@ -468,11 +468,6 @@ class TrafficService:
         if not self._configured:
             return
 
-        # Impedir bloqueio de IPs de administradores
-        if self.is_admin_ip(ip):
-            logger.warning(f"🛡️ Tentativa de bloquear IP admin ignorada: {ip}")
-            raise ValueError(f"IP {ip} pertence a um administrador e não pode ser bloqueado")
-
         geo = self._geo_cache.get(ip, {})
         req_count = len(self._req_counts.get(ip, []))
 
@@ -683,8 +678,8 @@ class TrafficService:
             except Exception:
                 pass
 
-        # Impedir bloqueio de dispositivos admin (por fingerprint ou IPs associados)
-        if self.is_admin_fp(fp_hash) or any(self.is_admin_ip(ip) for ip in associated_ips):
+        # Impedir bloqueio de dispositivos admin (apenas por fingerprint)
+        if self.is_admin_fp(fp_hash):
             logger.warning(f"🛡️ Tentativa de bloquear dispositivo admin ignorada: {fp_hash[:12]}...")
             raise ValueError(f"Dispositivo {fp_hash[:12]}... pertence a um administrador e não pode ser bloqueado")
 

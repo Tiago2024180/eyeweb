@@ -535,18 +535,14 @@ async def block_ip(req: BlockIPRequest):
     from ..services.traffic_service import TrafficService
     ts = TrafficService.get()
 
-    # Impedir bloqueio de IPs de administradores
+    # Impedir bloqueio de IPs de administradores (só no endpoint manual)
     if ts.is_admin_ip(req.ip):
         raise HTTPException(
             status_code=403,
             detail=f"IP {req.ip} pertence a um administrador e não pode ser bloqueado"
         )
 
-    try:
-        await ts.block_ip(req.ip, req.reason, "admin")
-    except ValueError as e:
-        raise HTTPException(status_code=403, detail=str(e))
-
+    await ts.block_ip(req.ip, req.reason, "admin")
     return {"success": True, "message": f"IP {req.ip} bloqueado"}
 
 
