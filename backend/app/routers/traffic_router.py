@@ -47,7 +47,7 @@ visit_router = APIRouter(tags=["traffic-visit"])
 # ─── RATE LIMITER para endpoints públicos ─────────────
 _public_rate: dict[str, list[float]] = defaultdict(list)
 _PUBLIC_RATE_WINDOW = 60    # 60 segundos
-_PUBLIC_RATE_LIMIT = 40     # máximo 40 requests/min por IP (heartbeat=3 + check-ip + visitas)
+_PUBLIC_RATE_LIMIT = 60     # máximo 60 requests/min por IP (heartbeat + check-ip + visitas)
 
 
 def _check_public_rate_limit(ip: str) -> bool:
@@ -782,6 +782,7 @@ async def check_ip_blocked(
 class VisitRequest(BaseModel):
     page: str
     fp: str = ""
+    ua: str = ""
 
 
 @visit_router.post("/visit")
@@ -818,7 +819,7 @@ async def log_visit(req: VisitRequest, request: Request):
         method="PAGE",
         path=page,
         status_code=200,
-        user_agent=request.headers.get("user-agent", ""),
+        user_agent=(req.ua or request.headers.get("user-agent", ""))[:500],
         response_time_ms=0,
         fingerprint_hash=req.fp or "",
     ))

@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const page = body.page || '/';
+    const ua = body.ua || '';  // Real browser UA from client-side
 
     const r = await fetch(`${BACKEND_URL}/api/visit`, {
       method: 'POST',
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
         'X-Forwarded-For': ip,
       },
-      body: JSON.stringify({ page, fp }),
+      body: JSON.stringify({ page, fp, ua }),
       signal: AbortSignal.timeout(2500),
     });
 

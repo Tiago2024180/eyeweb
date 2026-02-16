@@ -407,6 +407,9 @@ class TrafficService:
         # Administradores e IPs de infraestrutura nunca são tratados como suspeitos
         if self.is_admin_ip(ip) or _is_infra(ip):
             return
+        # PAGE entries vêm do nosso próprio código (PageTracker) — não são ataques
+        if method == "PAGE":
+            return
 
         geo = geo or {}
         events = []

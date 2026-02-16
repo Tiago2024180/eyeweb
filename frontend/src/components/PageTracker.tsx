@@ -35,7 +35,10 @@ export default function PageTracker() {
     fetch('/api/visit', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ page: pathname }),
+      body: JSON.stringify({
+        page: pathname,
+        ua: navigator.userAgent || '',
+      }),
       keepalive: true,
     }).catch(() => {});
   }, [pathname]);

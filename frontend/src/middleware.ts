@@ -9,10 +9,6 @@ const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const ipCache = new Map<string, { blocked: boolean; ts: number }>();
 const CACHE_TTL = 15_000; // 15 segundos — só para bloqueio
 
-// Cache de visitas registadas (evitar duplicados na mesma sessão)
-const visitCache = new Map<string, number>(); // "ip|path" → timestamp
-const VISIT_TTL = 60_000; // 60 segundos — mesma página não é re-registada
-
 // Rotas que requerem autenticação no middleware
 // NOTA: Desde que migramos o Supabase client para createClient (localStorage),
 // o middleware server-side NÃO consegue ver sessões client-side.
@@ -63,23 +59,14 @@ export async function middleware(req: NextRequest) {
   // Verificar IP bloqueado — só para IPs reais (não localhost)
   // Heartbeats de utilizadores reais passam pelo proxy /api/heartbeat
   if (clientIp && clientIp !== '127.0.0.1' && clientIp !== '::1') {
-    const pagePath = req.nextUrl.pathname;
-    const userAgent = req.headers.get('user-agent') || '';
     // Ler fingerprints dos cookies (definidos pelo PageTracker no client-side)
     const fpCookie = req.cookies.get('__ewfp')?.value || '';
     const hwCookie = req.cookies.get('__ewhw')?.value || '';
-    // Não enviar path para: rotas admin, /api/, ou prefetches do Next.js
-    // Next.js prefetch envia headers específicos — não são navigações reais
-    const isInternal = pagePath.startsWith('/admin') || pagePath.startsWith('/api/');
-    const isPrefetch = req.headers.get('purpose') === 'prefetch'
-      || req.headers.get('x-middleware-prefetch') === '1'
-      || req.headers.get('rsc') === '1'
-      || req.headers.get('next-router-prefetch') === '1';
-    const skipPath = isInternal || isPrefetch;
+    // Middleware só verifica bloqueio — visitas são registadas pelo PageTracker
     const isBlocked = await checkBlocked(
       clientIp,
-      skipPath ? '' : pagePath,
-      skipPath ? '' : userAgent,
+      '',  // não enviar path (PageTracker regista visitas client-side)
+      '',  // não enviar ua
       fpCookie,
       hwCookie
     );
@@ -207,18 +194,9 @@ async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: 
     return true;
   }
 
-  // 2. Verificar se esta visita (ip+path) já foi registada recentemente
-  const visitKey = `${ip}|${path}`;
-  const lastVisit = visitCache.get(visitKey) || 0;
-  const skipVisitLog = Date.now() - lastVisit < VISIT_TTL;
-
-  // 3. Perguntar ao backend (envia path+ua+fp+hwfp para registar visita)
+  // 2. Perguntar ao backend (só verifica bloqueio — visitas registadas pelo PageTracker)
   try {
     const params = new URLSearchParams({ ip });
-    if (path && !skipVisitLog) {
-      params.set('path', path);
-      if (ua) params.set('ua', ua.slice(0, 300));
-    }
     // Enviar fingerprint se disponível (do cookie __ewfp)
     if (fp) params.set('fp', fp);
     // Enviar hardware fingerprint (do cookie __ewhw) — anti browser-switch
@@ -231,11 +209,7 @@ async function checkBlocked(ip: string, path: string = '', ua: string = '', fp: 
     if (r.ok) {
       const data = await r.json();
       ipCache.set(cacheKey, { blocked: data.blocked, ts: Date.now() });
-      if (path && !skipVisitLog) {
-        visitCache.set(visitKey, Date.now());
-      }
       if (ipCache.size > 5000) ipCache.clear();
-      if (visitCache.size > 10000) visitCache.clear();
       return data.blocked;
     }
   } catch {
