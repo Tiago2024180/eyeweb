@@ -107,6 +107,7 @@ interface DetailedLogEntry {
   is_vpn: boolean;
   vpn_provider: string;
   response_time_ms: number;
+  fingerprint_hash: string;
   event: string | null;
   severity: string | null;
   details: string | null;
@@ -133,7 +134,7 @@ export default function TrafficMonitorPage() {
 
   // Detailed logs filters (client-side for instant UX)
   const [detailedFilter, setDetailedFilter] = useState('');
-  const [detailedTypeFilter, setDetailedTypeFilter] = useState<'all' | 'request' | 'threat'>('all');
+  const [detailedTypeFilter, setDetailedTypeFilter] = useState<'all' | 'request' | 'visit' | 'threat'>('all');
 
   // Block modal
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -493,7 +494,8 @@ export default function TrafficMonitorPage() {
   // Filtered detailed logs (client-side filtering for instant UX)
   const filteredDetailedLogs = detailedLogs.filter(entry => {
     if (detailedFilter && !entry.ip.includes(detailedFilter)) return false;
-    if (detailedTypeFilter === 'request' && entry._type !== 'request') return false;
+    if (detailedTypeFilter === 'request' && (entry._type !== 'request' || entry.method === 'PAGE')) return false;
+    if (detailedTypeFilter === 'visit' && !(entry._type === 'request' && entry.method === 'PAGE')) return false;
     if (detailedTypeFilter === 'threat' && entry._type !== 'threat') return false;
     return true;
   });
@@ -766,6 +768,12 @@ export default function TrafficMonitorPage() {
                 <i className="fa-solid fa-arrow-right-arrow-left"></i> Requests
               </button>
               <button
+                className={`type-filter-btn ${detailedTypeFilter === 'visit' ? 'active' : ''}`}
+                onClick={() => setDetailedTypeFilter('visit')}
+              >
+                <i className="fa-solid fa-eye"></i> Visitas
+              </button>
+              <button
                 className={`type-filter-btn ${detailedTypeFilter === 'threat' ? 'active' : ''}`}
                 onClick={() => setDetailedTypeFilter('threat')}
               >
@@ -838,11 +846,26 @@ export default function TrafficMonitorPage() {
                       {entry._type === 'threat' ? (
                         <div className="threat-info">
                           <span className="threat-detail">{entry.details}</span>
-                          {entry.auto_blocked && (
+                          {entry.auto_blocked ? (
                             <span className="auto-blocked-badge">
                               <i className="fa-solid fa-robot"></i>
                               Auto-bloqueado
                             </span>
+                          ) : !blockedIpSet.has(entry.ip) && (
+                            <button
+                              className="action-btn block-btn threat-block-btn"
+                              onClick={() => {
+                                const reason = `[Ameaça] ${getEventLabel(entry.event || '')}: ${entry.details || ''}`;
+                                setBlockTargetIp(entry.ip);
+                                setBlockTargetFp('');
+                                setBlockReason(reason);
+                                setShowBlockModal(true);
+                              }}
+                              title="Bloquear este IP"
+                            >
+                              <i className="fa-solid fa-ban"></i>
+                              Bloquear
+                            </button>
                           )}
                         </div>
                       ) : (

@@ -404,8 +404,8 @@ class TrafficService:
                                   user_agent: str, now: float,
                                   geo: dict | None = None):
         """Detect attack patterns and auto-block if necessary."""
-        # Administradores e IPs de infraestrutura nunca são tratados como suspeitos
-        if self.is_admin_ip(ip) or _is_infra(ip):
+        # IPs de infraestrutura nunca são tratados como suspeitos
+        if _is_infra(ip):
             return
         # PAGE entries vêm do nosso próprio código (PageTracker) — não são ataques
         if method == "PAGE":
