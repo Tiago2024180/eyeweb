@@ -503,6 +503,8 @@ export default function TrafficMonitorPage() {
   // Set of blocked IPs and fingerprints for quick lookup in logs tab
   const blockedIpSet = new Set(blocked.map(b => b.ip));
   const blockedFpSet = new Set(blockedDevices.map(d => d.fingerprint_hash));
+  // Set of admin fingerprints (from connections data)
+  const adminFpSet = new Set(connections.filter(c => c.is_admin).map(c => c.fingerprint_hash));
 
   // ─── RENDER ──────────────────────────────────────────
 
@@ -876,21 +878,31 @@ export default function TrafficMonitorPage() {
                       )}
                     </td>
                     <td className="col-actions">
-                      {entry._type === 'threat' && !entry.auto_blocked && !blockedIpSet.has(entry.ip) && !blockedFpSet.has(entry.fingerprint_hash) && (
-                        <button
-                          className="action-btn block-btn threat-block-btn"
-                          onClick={() => {
-                            const reason = `[Ameaça] ${getEventLabel(entry.event || '')}: ${entry.details || ''}`;
-                            setBlockTargetIp(entry.ip);
-                            setBlockTargetFp(entry.fingerprint_hash || '');
-                            setBlockReason(reason);
-                            setShowBlockModal(true);
-                          }}
-                          title={entry.fingerprint_hash ? 'Bloquear dispositivo' : 'Bloquear IP'}
-                        >
-                          <i className={`fa-solid ${entry.fingerprint_hash ? 'fa-fingerprint' : 'fa-ban'}`}></i>
-                        </button>
-                      )}
+                      {(() => {
+                        const fp = entry.fingerprint_hash || '';
+                        const isAdmin = fp ? adminFpSet.has(fp) : false;
+                        const isBlocked = fp ? blockedFpSet.has(fp) : blockedIpSet.has(entry.ip);
+                        const isAutoBlocked = entry._type === 'threat' && entry.auto_blocked;
+                        if (isAdmin || isBlocked || isAutoBlocked) return null;
+                        // Build reason based on entry type
+                        const reason = entry._type === 'threat'
+                          ? `[Ameaça] ${getEventLabel(entry.event || '')}: ${entry.details || ''}`
+                          : '';
+                        return (
+                          <button
+                            className="action-btn block-btn threat-block-btn"
+                            onClick={() => {
+                              setBlockTargetIp(entry.ip);
+                              setBlockTargetFp(fp);
+                              setBlockReason(reason);
+                              setShowBlockModal(true);
+                            }}
+                            title={fp ? 'Bloquear dispositivo' : 'Bloquear IP'}
+                          >
+                            <i className={`fa-solid ${fp ? 'fa-fingerprint' : 'fa-ban'}`}></i>
+                          </button>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))}

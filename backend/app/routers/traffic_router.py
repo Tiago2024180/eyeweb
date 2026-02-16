@@ -579,6 +579,38 @@ async def get_detailed_logs(
     entries.sort(key=lambda e: e["timestamp"], reverse=True)
     entries = entries[:limit]
 
+    # ─── Enrich entries without fingerprint_hash ───
+    # Look up fingerprint from traffic_device_ips for IPs that don't have one
+    missing_fp_ips = {
+        e["ip"] for e in entries
+        if e["ip"] and not e.get("fingerprint_hash")
+    }
+    ip_to_fp: dict[str, str] = {}
+    if missing_fp_ips:
+        try:
+            ips_csv = ",".join(f'"{ip}"' for ip in missing_fp_ips)
+            q_fp = (
+                f"{url}/rest/v1/traffic_device_ips"
+                f"?ip=in.({ips_csv})"
+                f"&select=ip,fingerprint_hash"
+                f"&order=last_seen_at.desc"
+            )
+            async with httpx.AsyncClient() as c:
+                r = await c.get(q_fp, headers=headers, timeout=5.0)
+            if r.status_code == 200:
+                for row in r.json():
+                    ip_val = row.get("ip", "")
+                    fp_val = row.get("fingerprint_hash", "")
+                    if ip_val and fp_val and ip_val not in ip_to_fp:
+                        ip_to_fp[ip_val] = fp_val
+        except Exception:
+            pass
+
+        # Apply fingerprint lookups to entries
+        for e in entries:
+            if not e.get("fingerprint_hash") and e["ip"] in ip_to_fp:
+                e["fingerprint_hash"] = ip_to_fp[e["ip"]]
+
     return {"entries": entries, "total": len(entries)}
 
 
