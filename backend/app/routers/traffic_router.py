@@ -187,6 +187,7 @@ _INFRA_CIDRS = [
     # ── Google (crawlers / bots / services) ──
     ip_network("66.102.0.0/16"),    # 66.102.x.x (Google services)
     ip_network("66.249.0.0/16"),    # 66.249.x.x (Googlebot)
+    ip_network("142.250.0.0/15"),   # 142.250–251 (Google frontend/edge)
     # ── Microsoft Azure ──
     ip_network("104.40.0.0/13"),    # 104.40–47
     ip_network("104.208.0.0/13"),   # 104.208–215
@@ -334,6 +335,9 @@ async def get_connections():
                 {"ip": ip, "is_vpn": conn["_ip_vpn"].get(ip, False)}
                 for ip in ip_list
             ]
+            # VPN status = reflect the CURRENT (most recent) IP, not any historical IP
+            if ip_list:
+                conn["is_vpn"] = conn["_ip_vpn"].get(ip_list[0], False)
 
         # Determine online: heartbeat (in-memory) OR recent Supabase activity (< 2 min)
         # Also check if any IP belongs to an admin
@@ -755,11 +759,29 @@ async def check_ip_blocked(
             fingerprint_hash=fp,
         ))
 
+    # Detetar mudança de IP (VPN ligada/desligada) — log automático
+    # para que o painel atualize o IP e VPN em tempo real
+    if not blocked and fp and ip:
+        last_ip = ts.get_last_ip(fp)
+        if last_ip and last_ip != ip:
+            # IP mudou — registar entrada silenciosa para atualizar conexão
+            asyncio.create_task(ts.safe_log_request(
+                ip=ip,
+                method="PAGE",
+                path="/",
+                status_code=200,
+                user_agent=(ua or "")[:500],
+                response_time_ms=0,
+                fingerprint_hash=fp,
+            ))
+        ts.set_last_ip(fp, ip)
+
     return {"blocked": blocked}
 
 
 class VisitRequest(BaseModel):
     page: str
+    fp: str = ""
 
 
 @visit_router.post("/visit")
@@ -798,6 +820,7 @@ async def log_visit(req: VisitRequest, request: Request):
         status_code=200,
         user_agent=request.headers.get("user-agent", ""),
         response_time_ms=0,
+        fingerprint_hash=req.fp or "",
     ))
 
     return {"ok": True}

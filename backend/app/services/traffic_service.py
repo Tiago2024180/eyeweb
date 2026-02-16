@@ -163,6 +163,7 @@ class TrafficService:
         self._heartbeats: Dict[str, float] = {}  # ip → last heartbeat timestamp
         self._admin_ips: Dict[str, float] = {}    # ip → last admin heartbeat timestamp
         self._admin_fps: Dict[str, float] = {}    # fingerprint_hash → last admin heartbeat timestamp
+        self._fp_last_ip: Dict[str, str] = {}        # fingerprint_hash → last known IP (VPN toggle detection)
         self.blocked_devices: set = set()  # fingerprint hashes bloqueados
         self.blocked_hardware_hashes: set = set()  # hardware hashes bloqueados (anti browser-switch)
         self._blocked_fp_components: Dict[str, dict] = {}  # fp_hash → components (para fuzzy matching)
@@ -264,6 +265,17 @@ class TrafficService:
             return False
         last = self._heartbeats.get(f"fp:{fp}", 0)
         return (time.time() - last) < 60
+
+    def get_last_ip(self, fp: str) -> str:
+        """Get the last known IP for a fingerprint."""
+        return self._fp_last_ip.get(fp, "")
+
+    def set_last_ip(self, fp: str, ip: str):
+        """Set the last known IP for a fingerprint."""
+        self._fp_last_ip[fp] = ip
+        # Cleanup if too many entries
+        if len(self._fp_last_ip) > 10000:
+            self._fp_last_ip = dict(list(self._fp_last_ip.items())[-5000:])
 
     def register_admin_ip(self, ip: str):
         """Tag an IP as belonging to a verified admin."""

@@ -23,7 +23,22 @@ import { supabase } from '@/lib/supabase';
 export default function PageTracker() {
   const pathname = usePathname();
   const fpSent = useRef(false);
+  const lastVisitedPath = useRef('');
   const [deviceBlocked, setDeviceBlocked] = useState(false);
+
+  // ─── Registar visita a cada navegação client-side ──
+  useEffect(() => {
+    if (pathname.startsWith('/admin') || pathname.startsWith('/api/')) return;
+    if (pathname === lastVisitedPath.current) return;
+    lastVisitedPath.current = pathname;
+
+    fetch('/api/visit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ page: pathname }),
+      keepalive: true,
+    }).catch(() => {});
+  }, [pathname]);
 
   // ─── Gerar fingerprint e registar no backend (uma vez por sessão) ──
   useEffect(() => {
