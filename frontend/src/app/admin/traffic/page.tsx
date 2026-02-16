@@ -762,16 +762,16 @@ export default function TrafficMonitorPage() {
                 Todos
               </button>
               <button
-                className={`type-filter-btn ${detailedTypeFilter === 'request' ? 'active' : ''}`}
-                onClick={() => setDetailedTypeFilter('request')}
-              >
-                <i className="fa-solid fa-arrow-right-arrow-left"></i> Requests
-              </button>
-              <button
                 className={`type-filter-btn ${detailedTypeFilter === 'visit' ? 'active' : ''}`}
                 onClick={() => setDetailedTypeFilter('visit')}
               >
                 <i className="fa-solid fa-eye"></i> Visitas
+              </button>
+              <button
+                className={`type-filter-btn ${detailedTypeFilter === 'request' ? 'active' : ''}`}
+                onClick={() => setDetailedTypeFilter('request')}
+              >
+                <i className="fa-solid fa-arrow-right-arrow-left"></i> Requests
               </button>
               <button
                 className={`type-filter-btn ${detailedTypeFilter === 'threat' ? 'active' : ''}`}
@@ -803,6 +803,7 @@ export default function TrafficMonitorPage() {
                   <th>Estado</th>
                   <th>Localização</th>
                   <th>Informação</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -846,26 +847,11 @@ export default function TrafficMonitorPage() {
                       {entry._type === 'threat' ? (
                         <div className="threat-info">
                           <span className="threat-detail">{entry.details}</span>
-                          {entry.auto_blocked ? (
+                          {entry.auto_blocked && (
                             <span className="auto-blocked-badge">
                               <i className="fa-solid fa-robot"></i>
                               Auto-bloqueado
                             </span>
-                          ) : !blockedIpSet.has(entry.ip) && (
-                            <button
-                              className="action-btn block-btn threat-block-btn"
-                              onClick={() => {
-                                const reason = `[Ameaça] ${getEventLabel(entry.event || '')}: ${entry.details || ''}`;
-                                setBlockTargetIp(entry.ip);
-                                setBlockTargetFp('');
-                                setBlockReason(reason);
-                                setShowBlockModal(true);
-                              }}
-                              title="Bloquear este IP"
-                            >
-                              <i className="fa-solid fa-ban"></i>
-                              Bloquear
-                            </button>
                           )}
                         </div>
                       ) : (
@@ -887,6 +873,23 @@ export default function TrafficMonitorPage() {
                             </span>
                           )}
                         </div>
+                      )}
+                    </td>
+                    <td className="col-actions">
+                      {entry._type === 'threat' && !entry.auto_blocked && !blockedIpSet.has(entry.ip) && !blockedFpSet.has(entry.fingerprint_hash) && (
+                        <button
+                          className="action-btn block-btn threat-block-btn"
+                          onClick={() => {
+                            const reason = `[Ameaça] ${getEventLabel(entry.event || '')}: ${entry.details || ''}`;
+                            setBlockTargetIp(entry.ip);
+                            setBlockTargetFp(entry.fingerprint_hash || '');
+                            setBlockReason(reason);
+                            setShowBlockModal(true);
+                          }}
+                          title={entry.fingerprint_hash ? 'Bloquear dispositivo' : 'Bloquear IP'}
+                        >
+                          <i className={`fa-solid ${entry.fingerprint_hash ? 'fa-fingerprint' : 'fa-ban'}`}></i>
+                        </button>
                       )}
                     </td>
                   </tr>

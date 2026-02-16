@@ -394,7 +394,7 @@ class TrafficService:
             pass  # Fire-and-forget
 
         # ─── Suspicious detection ───
-        await self._detect_suspicious(ip, method, path, user_agent, now, geo)
+        await self._detect_suspicious(ip, method, path, user_agent, now, geo, fingerprint_hash)
 
     # ═══════════════════════════════════════════════════
     # SUSPICIOUS ACTIVITY DETECTION
@@ -402,7 +402,8 @@ class TrafficService:
 
     async def _detect_suspicious(self, ip: str, method: str, path: str,
                                   user_agent: str, now: float,
-                                  geo: dict | None = None):
+                                  geo: dict | None = None,
+                                  fingerprint_hash: str = ""):
         """Detect attack patterns and auto-block if necessary."""
         # IPs de infraestrutura nunca são tratados como suspeitos
         if _is_infra(ip):
@@ -412,6 +413,7 @@ class TrafficService:
             return
 
         geo = geo or {}
+        fp = fingerprint_hash or ""
         events = []
 
         # 1. Rate limiting (>100 req/min)
@@ -525,10 +527,12 @@ class TrafficService:
         for event in events:
             auto_block = event.pop("_auto_block", False)
 
-            # Insert to suspicious table (include geo data)
+            # Insert to suspicious table (include geo data + fingerprint)
             event["country"] = geo.get("country", "")
             event["city"] = geo.get("city", "")
             event["is_vpn"] = geo.get("is_vpn", False)
+            if fp:
+                event["fingerprint_hash"] = fp
             try:
                 async with httpx.AsyncClient() as c:
                     await c.post(

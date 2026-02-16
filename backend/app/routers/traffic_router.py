@@ -566,7 +566,7 @@ async def get_detailed_logs(
                     "is_vpn": evt.get("is_vpn", False),
                     "vpn_provider": "",
                     "response_time_ms": 0,
-                    "fingerprint_hash": "",
+                    "fingerprint_hash": evt.get("fingerprint_hash", ""),
                     "event": evt.get("event", ""),
                     "severity": evt.get("severity", ""),
                     "details": evt.get("details", ""),
