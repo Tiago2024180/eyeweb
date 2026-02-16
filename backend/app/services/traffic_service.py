@@ -375,6 +375,10 @@ class TrafficService:
                 )
                 # ─── Persist fingerprint→IP association (upsert) ───
                 if fingerprint_hash and ip:
+                    # Atualizar mapa em memória (para block_device ter todos os IPs)
+                    if fingerprint_hash not in self._fp_ip_map:
+                        self._fp_ip_map[fingerprint_hash] = set()
+                    self._fp_ip_map[fingerprint_hash].add(ip)
                     try:
                         await c.post(
                             f"{self._url}/rest/v1/traffic_device_ips",
@@ -826,22 +830,35 @@ class TrafficService:
         # Obter IPs associados a este fingerprint
         associated_ips = list(self._fp_ip_map.get(fp_hash, set()))
 
-        # Se não temos em memória, tentar obter do Supabase
+        # Se não temos em memória, tentar obter do Supabase (traffic_device_ips)
         if not associated_ips:
             try:
                 async with httpx.AsyncClient() as c:
                     r = await c.get(
-                        f"{self._url}/rest/v1/traffic_device_fingerprints"
-                        f"?fingerprint_hash=eq.{fp_hash}&select=ips,components",
+                        f"{self._url}/rest/v1/traffic_device_ips"
+                        f"?fingerprint_hash=eq.{fp_hash}&select=ip",
                         headers=self._headers, timeout=3.0,
                     )
                     if r.status_code == 200 and r.json():
-                        data = r.json()[0]
-                        associated_ips = data.get("ips") or []
-                        if not components:
-                            components = data.get("components") or {}
+                        associated_ips = [row["ip"] for row in r.json() if row.get("ip")]
             except Exception:
                 pass
+            # Fallback: também tentar a tabela antiga traffic_device_fingerprints
+            if not associated_ips:
+                try:
+                    async with httpx.AsyncClient() as c:
+                        r = await c.get(
+                            f"{self._url}/rest/v1/traffic_device_fingerprints"
+                            f"?fingerprint_hash=eq.{fp_hash}&select=ips,components",
+                            headers=self._headers, timeout=3.0,
+                        )
+                        if r.status_code == 200 and r.json():
+                            data = r.json()[0]
+                            associated_ips = data.get("ips") or []
+                            if not components:
+                                components = data.get("components") or {}
+                except Exception:
+                    pass
 
         # Impedir bloqueio de dispositivos admin (apenas por fingerprint)
         if self.is_admin_fp(fp_hash):

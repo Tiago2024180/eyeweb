@@ -391,29 +391,46 @@ async def get_traffic_stats():
     try:
         async with httpx.AsyncClient() as c:
 
-            # 3 queries ao Supabase (requests, suspicious, blocked)
+            # Queries ao Supabase (requests, suspicious, blocked IPs, blocked devices)
             r1 = await c.get(
                 f"{url}/rest/v1/traffic_logs?select=id&created_at=gte.{today_start}"
                 f"&ip=not.in.(127.0.0.1,::1,localhost)",
                 headers=count_headers, timeout=8.0,
             )
+            # Suspicious: buscar IPs para contar únicos
             r3 = await c.get(
-                f"{url}/rest/v1/traffic_suspicious?select=id&created_at=gte.{today_start}",
-                headers=count_headers, timeout=8.0,
+                f"{url}/rest/v1/traffic_suspicious?select=ip&created_at=gte.{today_start}",
+                headers=headers, timeout=8.0,
             )
             r4 = await c.get(
                 f"{url}/rest/v1/traffic_blocked_ips?select=id",
+                headers=count_headers, timeout=8.0,
+            )
+            r5 = await c.get(
+                f"{url}/rest/v1/traffic_blocked_devices?select=id",
                 headers=count_headers, timeout=8.0,
             )
 
         # IPs online = heartbeat ativo (mesmo critério do 🟢 na tabela)
         online_ips = ts.online_count()
 
+        # Suspicious: contar IPs únicos (não total de eventos)
+        suspicious_unique = 0
+        if r3 and r3.status_code == 200:
+            try:
+                suspicious_unique = len(set(row.get("ip", "") for row in r3.json()))
+            except Exception:
+                suspicious_unique = 0
+
+        # Bloqueados = IPs bloqueados + dispositivos bloqueados
+        blocked_ips_count = _parse_count(r4) if r4 else 0
+        blocked_devices_count = _parse_count(r5) if r5 else 0
+
         return {
             "requests_today": _parse_count(r1) if r1 else 0,
             "active_ips_5m": online_ips,
-            "suspicious_today": _parse_count(r3) if r3 else 0,
-            "blocked_total": _parse_count(r4) if r4 else 0,
+            "suspicious_today": suspicious_unique,
+            "blocked_total": blocked_ips_count + blocked_devices_count,
         }
     except Exception as e:
         return {

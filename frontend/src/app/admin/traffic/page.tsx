@@ -501,7 +501,10 @@ export default function TrafficMonitorPage() {
   });
 
   // Set of blocked IPs and fingerprints for quick lookup in logs tab
-  const blockedIpSet = new Set(blocked.map(b => b.ip));
+  const blockedIpSet = new Set([
+    ...blocked.map(b => b.ip),
+    ...blockedDevices.flatMap(d => d.associated_ips || []),
+  ]);
   const blockedFpSet = new Set(blockedDevices.map(d => d.fingerprint_hash));
   // Set of admin fingerprints (from connections data)
   const adminFpSet = new Set(connections.filter(c => c.is_admin).map(c => c.fingerprint_hash));
@@ -881,7 +884,7 @@ export default function TrafficMonitorPage() {
                       {(() => {
                         const fp = entry.fingerprint_hash || '';
                         const isAdmin = fp ? adminFpSet.has(fp) : false;
-                        const isBlocked = fp ? blockedFpSet.has(fp) : blockedIpSet.has(entry.ip);
+                        const isBlocked = (fp && blockedFpSet.has(fp)) || blockedIpSet.has(entry.ip);
                         const isAutoBlocked = entry._type === 'threat' && entry.auto_blocked;
                         if (isAdmin || isBlocked || isAutoBlocked) return null;
                         // Build reason based on entry type
