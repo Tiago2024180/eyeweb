@@ -68,12 +68,18 @@ export async function middleware(req: NextRequest) {
     // Ler fingerprints dos cookies (definidos pelo PageTracker no client-side)
     const fpCookie = req.cookies.get('__ewfp')?.value || '';
     const hwCookie = req.cookies.get('__ewhw')?.value || '';
-    // Não enviar path para: rotas admin ou /api/ (evita poluir traffic_logs)
+    // Não enviar path para: rotas admin, /api/, ou prefetches do Next.js
+    // Next.js prefetch envia headers específicos — não são navigações reais
     const isInternal = pagePath.startsWith('/admin') || pagePath.startsWith('/api/');
+    const isPrefetch = req.headers.get('purpose') === 'prefetch'
+      || req.headers.get('x-middleware-prefetch') === '1'
+      || req.headers.get('rsc') === '1'
+      || req.headers.get('next-router-prefetch') === '1';
+    const skipPath = isInternal || isPrefetch;
     const isBlocked = await checkBlocked(
       clientIp,
-      isInternal ? '' : pagePath,
-      isInternal ? '' : userAgent,
+      skipPath ? '' : pagePath,
+      skipPath ? '' : userAgent,
       fpCookie,
       hwCookie
     );

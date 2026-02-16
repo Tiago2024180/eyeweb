@@ -294,6 +294,33 @@ async def get_connections():
             # Track most recent activity (rows are ordered ASC)
             conn["_last_seen"] = row.get("created_at", "")
 
+        # ─── Enrich with persistent IP history (traffic_device_ips) ───
+        fps_with_data = [k for k, v in seen.items() if v.get("fingerprint_hash")]
+        if fps_with_data:
+            fp_csv = ",".join(fps_with_data)
+            try:
+                async with httpx.AsyncClient() as c2:
+                    rh = await c2.get(
+                        f"{url}/rest/v1/traffic_device_ips?fingerprint_hash=in.({fp_csv})"
+                        f"&select=fingerprint_hash,ip,is_vpn&order=last_seen_at.desc",
+                        headers=headers, timeout=8.0,
+                    )
+                if rh.status_code == 200:
+                    for row in rh.json():
+                        fp = row.get("fingerprint_hash", "")
+                        ip = row.get("ip", "")
+                        if fp in seen and ip and not _is_infra_ip(ip):
+                            conn = seen[fp]
+                            if ip not in conn["_ips_set"]:
+                                conn["_ips_set"].add(ip)
+                                conn["_ip_vpn"][ip] = bool(row.get("is_vpn"))
+                                conn["_ip_last"][ip] = row.get("last_seen_at", "")
+                            # Update VPN if historic record is more accurate
+                            if row.get("is_vpn"):
+                                conn["_ip_vpn"][ip] = True
+            except Exception:
+                pass
+
         # Build ip_details and order IPs by most recent last (so most recent is first)
         for conn in seen.values():
             # Sort IPs: most recently seen first
@@ -444,7 +471,9 @@ async def get_suspicious_events(
         if r.status_code != 200:
             return {"events": [], "total": 0}
 
-        return {"events": r.json(), "total": _parse_count(r)}
+        # Filter out infra IPs (old entries that slipped through)
+        events = [e for e in r.json() if not _is_infra_ip(e.get("ip", ""))]
+        return {"events": events, "total": len(events)}
     except Exception:
         return {"events": [], "total": 0}
 

@@ -361,6 +361,23 @@ class TrafficService:
                     json=log_data,
                     timeout=5.0,
                 )
+                # ─── Persist fingerprint→IP association (upsert) ───
+                if fingerprint_hash and ip:
+                    try:
+                        await c.post(
+                            f"{self._url}/rest/v1/traffic_device_ips",
+                            headers={**self._headers, "Prefer": "return=minimal,resolution=merge-duplicates"},
+                            json={
+                                "fingerprint_hash": fingerprint_hash,
+                                "ip": ip,
+                                "is_vpn": geo.get("is_vpn", False),
+                                "country": geo.get("country", ""),
+                                "city": geo.get("city", ""),
+                            },
+                            timeout=3.0,
+                        )
+                    except Exception:
+                        pass
         except Exception:
             pass  # Fire-and-forget
 
