@@ -32,6 +32,7 @@ from .routers.admin_router import router as admin_router
 from .routers.chat_router import router as chat_router
 from .routers.user_chat_router import router as user_chat_router
 from .routers.traffic_router import router as traffic_router, visit_router
+from .routers.news_router import router as news_router
 from .services.breach_service import get_breach_service
 from .services.traffic_service import TrafficService
 
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI):
     logger.info(f"Ambiente: {settings.ENVIRONMENT}")
     logger.info(f"Dataset: {settings.HF_DATASET_REPO}")
     logger.info(f"Cache: {settings.CACHE_MAX_SIZE} partições")
+    logger.info(f"News & AI: HF Token {'configured' if settings.HF_TOKEN else 'NOT configured'}")
     
     # Pré-aquecer serviço (opcional)
     service = get_breach_service()
@@ -232,6 +234,12 @@ app.include_router(
 app.include_router(
     visit_router,
     prefix="/api"
+)
+
+# Router de News & HF AI (notícias de cibersegurança + classificação IA)
+app.include_router(
+    news_router,
+    prefix=settings.API_PREFIX
 )
 
 

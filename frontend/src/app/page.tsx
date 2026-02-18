@@ -7,12 +7,16 @@ import Tabs from '@/components/Tabs';
 import DataChecker from '@/components/DataChecker';
 import UrlChecker from '@/components/UrlChecker';
 import PasswordChecker from '@/components/PasswordChecker';
+import NewsSearch from '@/components/NewsSearch';
+import DatasetExplorer from '@/components/DatasetExplorer';
 import Footer from '@/components/Footer';
 
 const TABS = [
   { id: 'data', label: 'Dados Pessoais', icon: 'fa-solid fa-user-shield' },
   { id: 'password', label: 'Força da Password', icon: 'fa-solid fa-key' },
   { id: 'url', label: 'Verificar URL', icon: 'fa-solid fa-link' },
+  { id: 'news', label: 'Notícias', icon: 'fa-solid fa-newspaper' },
+  { id: 'dataset', label: 'Dataset Explorer', icon: 'fa-solid fa-database' },
 ];
 
 export default function Home() {
@@ -55,6 +59,18 @@ export default function Home() {
           {activeTab === 'password' && (
             <section>
               <PasswordChecker />
+            </section>
+          )}
+
+          {activeTab === 'news' && (
+            <section>
+              <NewsSearch />
+            </section>
+          )}
+
+          {activeTab === 'dataset' && (
+            <section>
+              <DatasetExplorer />
             </section>
           )}
         </div>

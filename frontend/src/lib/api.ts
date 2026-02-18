@@ -693,3 +693,100 @@ export async function getApiStats(): Promise<ApiStats> {
   }
   return response.json();
 }
+
+// ===========================================
+// NEWS SEARCH — Pesquisa de Notícias de Cibersegurança
+// ===========================================
+
+export interface AiClassification {
+  topLabel: string;
+  topScore: number;
+  securityScore: number;
+  isSecurityRelated: boolean;
+}
+
+export interface NewsArticle {
+  title: string;
+  link: string;
+  pubDate: string;
+  source: string;
+  snippet: string;
+  reason?: {
+    matchedKeywords: string[];
+    matchedSignals: string[];
+  };
+  aiClassification?: AiClassification;
+}
+
+export interface NewsSearchResult {
+  query: string;
+  type: string;
+  keywords: string[];
+  aiEnabled: boolean;
+  sourcesSearched: {
+    googleNews: number;
+    bingNews: number;
+    gdelt: number;
+    securityRSS: number;
+    huggingFaceAI: boolean;
+  };
+  totalResults: number;
+  results: NewsArticle[];
+}
+
+/**
+ * Pesquisa notícias de cibersegurança em 14+ fontes
+ * (Google News RSS, Bing News RSS, GDELT, 12 security RSS feeds)
+ * Com classificação AI via HF Inference API (bart-large-mnli)
+ */
+export async function searchNews(
+  query: string,
+  type: string = 'domain',
+): Promise<NewsSearchResult> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/news/search/${encodeURIComponent(query)}?type=${encodeURIComponent(type)}`,
+  );
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Erro desconhecido' }));
+    throw new Error(error.detail || `Erro ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// ===========================================
+// DATASET EXPLORER — Dados do HF Dataset
+// ===========================================
+
+export interface DatasetRow {
+  domain: string;
+  checkedAt: string;
+  breachName: string;
+  breachTitle: string;
+  breachDate: string;
+  pwnCount: number;
+  dataClasses: string;
+  description: string;
+}
+
+export interface DatasetExplorerResult {
+  rows: DatasetRow[];
+  total: number;
+  repo: string;
+  error?: string;
+}
+
+/**
+ * Obtém os dados do Dataset Explorer (search_history.jsonl do HF)
+ */
+export async function fetchDatasetExplorer(): Promise<DatasetExplorerResult> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/news/dataset-explorer`);
+
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+

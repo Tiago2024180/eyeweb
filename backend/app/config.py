@@ -98,6 +98,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",      # Next.js dev
         "http://127.0.0.1:3000",
         "https://eyeweb.vercel.app",  # Produção Vercel
+        "https://api-proxy-render.vercel.app",  # Test site
     ]
     
     # ===========================================
