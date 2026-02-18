@@ -53,7 +53,7 @@ async def classify_text(text: str, hf_token: str) -> Optional[dict]:
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.post(
-                f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+                f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}",
                 headers={
                     "Authorization": f"Bearer {hf_token}",
                     "Content-Type": "application/json",
@@ -69,11 +69,22 @@ async def classify_text(text: str, hf_token: str) -> Optional[dict]:
             return None
 
         data = resp.json()
-        if not data or not isinstance(data.get("labels"), list):
-            return None
 
-        labels = data["labels"]
-        scores = data["scores"]
+        # Handle both response formats:
+        # Old format: {"labels": [...], "scores": [...]}
+        # New router format: [{"label": "...", "score": 0.83}, ...]
+        if isinstance(data, list):
+            # New router format — array of {label, score} objects
+            if not data or "label" not in data[0]:
+                return None
+            labels = [item["label"] for item in data]
+            scores = [item["score"] for item in data]
+        elif isinstance(data, dict) and isinstance(data.get("labels"), list):
+            # Old format
+            labels = data["labels"]
+            scores = data["scores"]
+        else:
+            return None
 
         # Aggregate security relevance score
         security_score = 0.0
